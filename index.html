@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#160d07">
+  <title>MB Jack — Western Blackjack</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23234c26' stroke='%232b1a0e' stroke-width='4'/%3E%3Cpath d='M32 10c7 12 20 20 20 31 0 7-5 11-11 11-4 0-7-2-9-5 0 4 2 8 6 10H26c4-2 6-6 6-10-2 3-5 5-9 5-6 0-11-4-11-11 0-11 13-19 20-31Z' fill='%23f6ead0' stroke='%232b1a0e' stroke-width='3'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="viewport" id="viewport">
+    <main class="stage" id="stage" aria-label="Herní stůl MB Jack">
+      <img class="stage__bg" src="assets/table-empty.jpg" alt="" draggable="false">
+
+      <!-- Dealer speech bubble -->
+      <aside class="dealer-bubble" id="dealerBubble" aria-live="polite">
+        <span class="dealer-bubble__text" id="dealerBubbleText">Hoď žetony do kruhu a klikni na zásobník.</span>
+      </aside>
+
+      <!-- Interactive wooden shoe on the right -->
+      <button class="shoe-hotspot" id="shoeHotspot" type="button" aria-label="Zásobník karet">
+        <span class="shoe-glow" aria-hidden="true"></span>
+        <span class="shoe-plate" aria-hidden="true">
+          <span class="shoe-plate__count" id="shoeCount">312</span>
+          <span class="shoe-plate__sub" id="shoeShuffleTag" hidden>Míchání po kole</span>
+        </span>
+      </button>
+
+      <!-- Three betting circles aligned with the painted gold ovals -->
+      <button class="seat-hotspot seat-hotspot--0" id="seatHotspot0" data-seat="0" type="button" aria-label="Levé sázkové místo">
+        <span class="seat-hotspot__hint">VSADIT</span>
+      </button>
+      <div class="seat-bet-pill seat-bet-pill--0" data-seat="0" hidden>
+        <span class="seat-bet-pill__amount">$0</span>
+        <button class="seat-bet-pill__clear" type="button" aria-label="Odebrat sázku z levého místa" title="Odebrat sázku">×</button>
+      </div>
+
+      <button class="seat-hotspot seat-hotspot--1" id="seatHotspot1" data-seat="1" type="button" aria-label="Prostřední sázkové místo">
+        <span class="seat-hotspot__hint">VSADIT</span>
+      </button>
+      <div class="seat-bet-pill seat-bet-pill--1" data-seat="1" hidden>
+        <span class="seat-bet-pill__amount">$0</span>
+        <button class="seat-bet-pill__clear" type="button" aria-label="Odebrat sázku z prostředního místa" title="Odebrat sázku">×</button>
+      </div>
+
+      <button class="seat-hotspot seat-hotspot--2" id="seatHotspot2" data-seat="2" type="button" aria-label="Pravé sázkové místo">
+        <span class="seat-hotspot__hint">VSADIT</span>
+      </button>
+      <div class="seat-bet-pill seat-bet-pill--2" data-seat="2" hidden>
+        <span class="seat-bet-pill__amount">$0</span>
+        <button class="seat-bet-pill__clear" type="button" aria-label="Odebrat sázku z pravého místa" title="Odebrat sázku">×</button>
+      </div>
+
+      <!-- Active hand reticle & dynamic layers -->
+      <div class="active-ring" id="activeRing" hidden aria-hidden="true"></div>
+      <div class="stage-layer card-layer" id="cardLayer" aria-live="off"></div>
+      <div class="stage-layer chip-layer" id="chipLayer" aria-hidden="true"></div>
+      <div class="stage-layer overlay-layer" id="overlayLayer"></div>
+
+      <!-- Top-right subtle saloon utilities -->
+      <div class="utility-corner">
+        <button class="saloon-icon-btn" id="soundBtn" type="button" aria-label="Zvuk" aria-pressed="false" title="Vypnout / zapnout zvuk">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M11 5 6 9H3v6h3l5 4V5Z"/>
+            <path class="sound-waves" d="M15.5 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/>
+          </svg>
+        </button>
+        <button class="saloon-icon-btn saloon-icon-btn--rules" id="rulesBtn" type="button" title="Pravidla a zkratky">? Pravidla</button>
+      </div>
+
+      <!-- Bottom-left wooden rail: bankroll plaque + chip rack -->
+      <section class="rail-left" aria-label="Žetony a kapitál">
+        <div class="brass-plaque" id="bankrollPlaque">
+          <div class="brass-plaque__row">
+            <span class="brass-plaque__label">BANK</span>
+            <strong class="brass-plaque__value" id="bankrollValue">$1 000</strong>
+          </div>
+          <div class="brass-plaque__row brass-plaque__row--sub">
+            <span class="brass-plaque__label">SÁZKA</span>
+            <strong class="brass-plaque__bet" id="betValue">$0</strong>
+          </div>
+        </div>
+        <div class="chip-rack" id="chipRack" role="group" aria-label="Výběr hodnoty žetonu"></div>
+      </section>
+
+      <!-- Bottom-right wooden rail: contextual game controls -->
+      <section class="rail-right" aria-label="Akce u stolu">
+        <div class="action-group" id="groupBetting">
+          <button class="saloon-btn saloon-btn--ghost" id="clearBtn" type="button" hidden>Smazat</button>
+          <button class="saloon-btn saloon-btn--wood" id="rebetBtn" type="button" hidden>Opakovat</button>
+          <button class="saloon-btn saloon-btn--gold" id="dealBtn" type="button" disabled>Rozdat</button>
+          <button class="saloon-btn saloon-btn--crimson" id="rebuyBtn" type="button" hidden>Doplnit $1 000</button>
+        </div>
+
+        <div class="action-group" id="groupInsurance" hidden>
+          <button class="saloon-btn saloon-btn--gold" id="insYesBtn" type="button">Pojištění (<span id="insCost">$0</span>)</button>
+          <button class="saloon-btn saloon-btn--wood" id="insNoBtn" type="button">Bez pojištění</button>
+        </div>
+
+        <div class="action-group" id="groupPlayer" hidden>
+          <button class="saloon-btn saloon-btn--gold" id="hitBtn" type="button" title="Klávesa H nebo klik na zásobník">Líznout</button>
+          <button class="saloon-btn saloon-btn--crimson" id="standBtn" type="button" title="Klávesa S">Stát</button>
+          <button class="saloon-btn saloon-btn--wood" id="doubleBtn" type="button" title="Klávesa D" hidden>Double</button>
+          <button class="saloon-btn saloon-btn--wood" id="splitBtn" type="button" title="Klávesa P" hidden>Split</button>
+          <button class="saloon-btn saloon-btn--ghost" id="surrenderBtn" type="button" title="Klávesa R" hidden>Vzdát se</button>
+        </div>
+
+        <div class="action-group" id="groupRoundOver" hidden>
+          <button class="saloon-btn saloon-btn--wood" id="rebetRoundBtn" type="button" hidden>Stejná sázka</button>
+          <button class="saloon-btn saloon-btn--gold" id="newRoundBtn" type="button" title="Mezerník / Enter">Nové kolo</button>
+        </div>
+      </section>
+
+      <!-- Parchment rules modal -->
+      <div class="rules-modal" id="rulesModal" role="dialog" aria-modal="true" aria-labelledby="rulesTitle" hidden>
+        <div class="rules-sheet">
+          <button class="rules-sheet__close" id="rulesCloseBtn" type="button" aria-label="Zavřít pravidla">×</button>
+          <h2 class="rules-sheet__title" id="rulesTitle">Pravidla stolu MB Jack</h2>
+          <ul class="rules-sheet__list">
+            <li><strong>Cíl hry:</strong> Měj vyšší součet než krupiér, ale nejvýše 21.</li>
+            <li><strong>Hodnoty karet:</strong> 2–10 dle čísla, J/Q/K za 10, Eso za 1 nebo 11 (výhodnější hodnota).</li>
+            <li><strong>Výplaty:</strong> Blackjack (Eso + 10/obrázek na 2 karty) vyplácí <strong>3:2</strong>, běžná výhra <strong>1:1</strong>, remíza (Push) vrací sázku.</li>
+            <li><strong>Krupiér:</strong> Musí táhnout do 16, na každých 17 až 21 stojí. Při esu nebo desítce kontroluje Blackjack.</li>
+            <li><strong>Možnosti:</strong> <em>Líznout</em> (Hit), <em>Stát</em> (Stand), <em>Double</em> (zdvojnásobit sázku za 1 kartu), <em>Split</em> (rozdělit pár stejné hodnoty až na 4 ruce), <em>Vzdát se</em> (vrátí ½ sázky z prvních 2 karet), <em>Pojištění</em> (při esu krupiéra za ½ sázky, vyplácí 2:1).</li>
+            <li><strong>Ovládání:</strong> Klik na kruh přidá žeton (pravý klik odebere), klik na dřevěný zásobník rozdá nebo lízne kartu.</li>
+          </ul>
+          <p class="rules-sheet__keys">Zkratky: <code>1–4</code> žetony · <code>Mezerník / Enter</code> rozdat / nové kolo · <code>H</code> líznout · <code>S</code> stát · <code>D</code> double · <code>P</code> split · <code>R</code> vzdát se</p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/events.js"></script>
+  <script src="js/rules.js"></script>
+  <script src="js/shoe.js"></script>
+  <script src="js/hand.js"></script>
+  <script src="js/blackjack.js"></script>
+  <script src="js/animator.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/sprites.js"></script>
+  <script src="js/scene.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

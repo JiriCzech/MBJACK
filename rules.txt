@@ -1,0 +1,28 @@
+1. Cíl hry
+Základním cílem je porazit krupiéra. Toho dosáhneš tak, že součet tvých karet bude vyšší než součet karet krupiéra, ale nesmí překročit hodnotu 21.
+2. Hodnoty karet
+Karty 2 až 10: Mají svou nominální hodnotu (číslo na kartě).
+Obrázky (Kluk, Dáma, Král): Všechny mají hodnotu přesně 10.
+Eso (A): Je flexibilní. Počítá se jako 1, nebo jako 11 – vždy tak, jak je to pro tvůj aktuální součet výhodnější. (Např. Eso a 6 je součet 7 nebo 17. Tomu se říká "měkký" součet).
+3. Základní průběh hry
+Sázky: Před rozdáním umístíš svou sázku.
+Rozdání: Dostaneš dvě karty (obvykle obě lícem nahoru). Krupiér si rozdá také dvě karty – jednu viditelnou lícem nahoru a druhou skrytou lícem dolů.
+Tvůj tah: Rozhoduješ se, jak se svými kartami naložíš (viz možnosti níže). Hraješ vždy dříve než krupiér.
+Tah krupiéra: Jakmile odehraješ ty (a případní další hráči), krupiér otočí svou skrytou kartu a musí hrát podle pevně stanovených pravidel.
+4. Tvé možnosti (Jak hrát)
+Když jsi na tahu, máš tyto základní volby:
+Hit (Další karta): Požádáš o další kartu, abys zvýšil svůj součet. Můžeš jich vzít kolik chceš, dokud nepřesáhneš 21.
+Stand (Stát): Jsi se svým součtem spokojený (nebo se bojíš přetažení) a nechceš další kartu. Tvůj tah končí.
+Double Down (Zdvojnásobení): Pokud máš slibné první dvě karty (často součet 9, 10 nebo 11), můžeš zdvojnásobit svou původní sázku. Podmínkou je, že poté dostaneš už jen jednu jedinou další kartu a tvůj tah okamžitě končí.
+Split (Rozdělení): Pokud jsou tvé první dvě karty stejné hodnoty (např. dvě osmičky nebo dvě karty s hodnotou 10), můžeš je rozdělit do dvou nezávislých her. Musíš přidat druhou sázku ve stejné výši, jako byla ta první. Ke každé z rozdělených karet dostaneš další kartu a každou „ruku“ hraješ dál samostatně.
+Surrender (Vzdání se): (Volitelné pravidlo, ne všechna kasina ho nabízejí). Pokud máš špatné karty a krupiér ukazuje silnou kartu (např. 10 nebo Eso), můžeš zahodit karty. Kasino ti rovnou vrátí polovinu tvé sázky a zbytek si nechá.
+Insurance (Pojištění): Pokud je krupiérova viditelná karta Eso, nabídne ti pojištění pro případ, že jeho skrytá karta má hodnotu 10 (což by znamenalo, že má Blackjack). Pojištění stojí polovinu tvé původní sázky a vyplácí se v poměru 2:1. (Matematicky se tento krok dlouhodobě nevyplácí).
+5. Pravidla pro krupiéra
+Krupiér nemá možnost volby, musí hrát přesně podle tohoto algoritmu:
+Musí táhnout (Hit): Dokud má součet 16 a méně, musí si brát další karty.
+Musí stát (Stand): Jakmile dosáhne součtu 17 až 21, nesmí si vzít další kartu a končí svůj tah.
+6. Výsledky a výplaty
+Blackjack: Pokud hned tvé první dvě karty dají přesně součet 21 (Eso + jakákoliv karta s hodnotou 10), máš "Blackjack". Vyhráváš v poměru 3:2 (za vsazených 100 Kč dostaneš 150 Kč navíc). Výjimkou je situace, kdy má Blackjack i krupiér – tehdy nastává remíza.
+Klasická výhra: Pokud na konci hry máš vyšší součet než krupiér (a nemáš přes 21), nebo pokud krupiér překročí 21 ("přetáhne"), vyhráváš v poměru 1:1.
+Prohra (Trop / Bust): Pokud tvůj součet přesáhne 21, okamžitě prohráváš svou sázku. Nezáleží na tom, jestli krupiér následně také překročí 21, protože ty jsi zničil svou hru jako první. Prohráváš i tehdy, pokud má krupiér na konci bez přetažení vyšší součet než ty.
+Remíza (Push): Pokud máte s krupiérem na konci naprosto stejný součet, nikdo nevyhrává a tvá sázka se ti vrací v plné výši.

@@ -1,0 +1,940 @@
+/* MB Jack — Cartoon Western Saloon Theme */
+
+:root {
+  --ink: #2b1a0e;
+  --cream: #f6ead0;
+  --parchment: #ebd4a4;
+  --gold: #f0c35a;
+  --gold-dark: #a6741f;
+  --wood-light: #8d4d25;
+  --wood-mid: #633215;
+  --wood-dark: #3d1d0b;
+  --crimson: #b92d26;
+  --crimson-dark: #751813;
+  --felt-glow: rgba(243, 203, 106, 0.35);
+  --font-serif: Georgia, "Palatino Linotype", "Book Antiqua", serif;
+  --font-ui: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #130a04;
+  font-family: var(--font-ui);
+  color: var(--cream);
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* ============================ Stage & Scaling =========================== */
+
+.viewport {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 50% 45%, #2b170a 0%, #110803 78%, #090401 100%);
+}
+
+.stage {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1376px;
+  height: 768px;
+  transform-origin: center center;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.85), 0 0 0 2px #2b1a0e;
+  user-select: none;
+  overflow: hidden;
+}
+
+.stage__bg {
+  position: absolute;
+  inset: 0;
+  width: 1376px;
+  height: 768px;
+  display: block;
+  pointer-events: none;
+}
+
+.stage-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.card-layer {
+  z-index: 20;
+}
+
+.chip-layer {
+  z-index: 30;
+}
+
+.overlay-layer {
+  z-index: 40;
+}
+
+/* ========================= Dealer Speech Bubble ========================= */
+
+.dealer-bubble {
+  position: absolute;
+  left: 822px;
+  top: 44px;
+  max-width: 266px;
+  padding: 10px 15px;
+  background: var(--cream);
+  color: var(--ink);
+  border: 3.5px solid var(--ink);
+  border-radius: 14px;
+  box-shadow: 3px 4px 0 rgba(25, 13, 6, 0.72);
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.3;
+  z-index: 45;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(4px) scale(0.96);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.dealer-bubble.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.dealer-bubble[data-mood="impressed"] {
+  background: #fff2c4;
+}
+
+.dealer-bubble[data-mood="grumpy"] {
+  background: #f9dccb;
+}
+
+.dealer-bubble::before {
+  content: "";
+  position: absolute;
+  left: -17px;
+  top: 18px;
+  border: 9px solid transparent;
+  border-right-color: var(--ink);
+}
+
+.dealer-bubble::after {
+  content: "";
+  position: absolute;
+  left: -11px;
+  top: 20px;
+  border: 7px solid transparent;
+  border-right-color: var(--cream);
+}
+
+.dealer-bubble[data-mood="impressed"]::after {
+  border-right-color: #fff2c4;
+}
+
+.dealer-bubble[data-mood="grumpy"]::after {
+  border-right-color: #f9dccb;
+}
+
+/* =========================== Shoe Hotspot =============================== */
+
+.shoe-hotspot {
+  position: absolute;
+  left: 1018px;
+  top: 242px;
+  width: 222px;
+  height: 154px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  z-index: 35;
+}
+
+.shoe-glow {
+  position: absolute;
+  left: 12px;
+  top: 52px;
+  width: 112px;
+  height: 82px;
+  border-radius: 12px;
+  transform: rotate(-22deg);
+  box-shadow: 0 0 0 0 rgba(240, 195, 90, 0);
+  transition: box-shadow 180ms ease, background-color 180ms ease;
+  pointer-events: none;
+}
+
+.shoe-hotspot.is-ready:hover .shoe-glow,
+.shoe-hotspot.is-ready:focus-visible .shoe-glow {
+  background: rgba(246, 212, 114, 0.14);
+  box-shadow: 0 0 18px 4px rgba(246, 212, 114, 0.52), inset 0 0 0 2px rgba(246, 212, 114, 0.65);
+}
+
+.shoe-hotspot.is-shuffling {
+  animation: shoeJiggle 320ms ease-in-out;
+}
+
+.shoe-plate {
+  position: absolute;
+  right: 12px;
+  bottom: 4px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2px 8px;
+  background: linear-gradient(180deg, #d7b261 0%, #9f7529 100%);
+  border: 2.5px solid var(--ink);
+  border-radius: 6px;
+  box-shadow: 0 2px 0 var(--ink);
+  color: var(--ink);
+  font-weight: 800;
+  font-size: 11px;
+  line-height: 1.15;
+  letter-spacing: 0.03em;
+  pointer-events: none;
+}
+
+.shoe-plate__sub {
+  font-size: 9px;
+  color: #5b140f;
+}
+
+/* ======================== Betting Circles (3 Seats) ===================== */
+
+.seat-hotspot {
+  position: absolute;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  z-index: 25;
+  transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.seat-hotspot--0 {
+  left: 237px;
+  top: 575px;
+  width: 184px;
+  height: 74px;
+  transform: translate(-50%, -50%) rotate(7deg);
+}
+
+.seat-hotspot--1 {
+  left: 688px;
+  top: 670px;
+  width: 176px;
+  height: 72px;
+  transform: translate(-50%, -50%);
+}
+
+.seat-hotspot--2 {
+  left: 1138px;
+  top: 575px;
+  width: 184px;
+  height: 74px;
+  transform: translate(-50%, -50%) rotate(-7deg);
+}
+
+.seat-hotspot__hint {
+  font-family: var(--font-serif);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: rgba(246, 224, 154, 0.65);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  opacity: 0;
+  transition: opacity 150ms ease;
+  pointer-events: none;
+}
+
+.seat-hotspot.is-betting:not(.has-bet) .seat-hotspot__hint {
+  opacity: 0.75;
+}
+
+.seat-hotspot.is-betting:hover,
+.seat-hotspot.is-betting:focus-visible {
+  background: rgba(240, 195, 90, 0.14);
+  border-color: rgba(246, 214, 122, 0.78);
+  box-shadow: 0 0 18px rgba(240, 195, 90, 0.35);
+}
+
+.seat-hotspot.is-betting:hover .seat-hotspot__hint {
+  opacity: 1;
+  color: #fff3ca;
+}
+
+.seat-hotspot.is-invite {
+  animation: circlePulse 1.8s ease-in-out infinite;
+}
+
+.seat-hotspot.is-nudged {
+  animation: nudge 280ms ease;
+}
+
+.seat-bet-pill {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px 2px 9px;
+  background: var(--wood-dark);
+  border: 2.5px solid var(--ink);
+  border-radius: 999px;
+  box-shadow: 0 2px 0 var(--ink);
+  color: var(--gold);
+  font-weight: 800;
+  font-size: 12px;
+  z-index: 36;
+}
+
+.seat-bet-pill--0 {
+  left: 237px;
+  top: 626px;
+}
+
+.seat-bet-pill--1 {
+  left: 688px;
+  top: 714px;
+}
+
+.seat-bet-pill--2 {
+  left: 1138px;
+  top: 626px;
+}
+
+.seat-bet-pill__clear {
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink);
+  background: var(--crimson);
+  color: var(--cream);
+  font-weight: 800;
+  font-size: 12px;
+  line-height: 13px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.seat-bet-pill__clear:hover {
+  background: #db3c34;
+}
+
+/* =========================== Active Hand Ring =========================== */
+
+.active-ring {
+  position: absolute;
+  width: 122px;
+  height: 130px;
+  border-radius: 16px;
+  border: 2.5px solid rgba(255, 222, 118, 0.9);
+  box-shadow: 0 0 22px rgba(246, 200, 82, 0.55), inset 0 0 14px rgba(246, 200, 82, 0.18);
+  z-index: 18;
+  pointer-events: none;
+  transition: left 200ms ease, top 200ms ease, transform 200ms ease;
+}
+
+/* ============================= Playing Cards ============================ */
+
+.card {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 112px;
+  height: 157px;
+  perspective: 820px;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.card__flip {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.card.is-down .card__flip {
+  transform: rotateY(180deg);
+}
+
+.card__face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  border-radius: 9px;
+  filter: drop-shadow(0 4px 5px rgba(20, 10, 4, 0.5));
+}
+
+.card__face svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.card__back {
+  transform: rotateY(180deg);
+}
+
+.card.is-muted .card__front {
+  filter: brightness(0.72) saturate(0.78);
+}
+
+/* =========================== Chip Stacks (Felt) ========================= */
+
+.chip-stack {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 58px;
+  height: 58px;
+  pointer-events: none;
+}
+
+.chip-stack.is-empty {
+  opacity: 0 !important;
+}
+
+.stage[data-phase="betting"] .chip-stack__tag {
+  display: none;
+}
+
+.chip-stack__chips {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+}
+
+.chip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 54px;
+  height: 27px;
+  border-radius: 50%;
+  border: 2.5px solid var(--ink);
+  background:
+    radial-gradient(ellipse at center, var(--chip) 0 44%, var(--chip-stripe) 45% 53%, transparent 54%),
+    repeating-conic-gradient(from 0deg, var(--chip) 0 18deg, var(--chip-stripe) 18deg 30deg);
+  box-shadow: 0 3.5px 0 var(--chip-edge), 0 5.5px 0 var(--ink), 0 8px 5px rgba(15, 8, 3, 0.42);
+  transform: translate(-50%, calc(-50% - var(--i, 0) * 4.4px));
+}
+
+.chip.is-new {
+  animation: chipDrop 190ms cubic-bezier(0.2, 0.9, 0.3, 1.15);
+}
+
+.chip-stack__tag {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 22px);
+  transform: translateX(-50%);
+  padding: 1px 7px;
+  background: rgba(34, 17, 7, 0.92);
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  color: var(--cream);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+}
+
+/* ======================= Score Badges & Result Stamps =================== */
+
+.score-badge {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 2px 9px;
+  background: var(--wood-dark);
+  color: var(--cream);
+  border: 2.5px solid var(--ink);
+  border-radius: 999px;
+  box-shadow: 0 2px 0 var(--ink), 0 4px 8px rgba(0, 0, 0, 0.42);
+  font-family: var(--font-ui);
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.score-badge[data-tone="blackjack"] {
+  background: linear-gradient(180deg, #f8d873 0%, #c88f28 100%);
+  color: var(--ink);
+}
+
+.score-badge[data-tone="bust"] {
+  background: var(--crimson);
+  color: #fff3e6;
+}
+
+.score-badge[data-tone="doubled"] {
+  border-color: var(--gold);
+  color: #ffe7a3;
+}
+
+.score-badge[data-tone="push"] {
+  background: #5c4b3b;
+}
+
+.result-stamp {
+  position: absolute;
+  transform: translate(-50%, -50%) rotate(-4deg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 5px 12px;
+  border: 3px solid var(--ink);
+  border-radius: 10px;
+  box-shadow: 2px 3px 0 var(--ink), 0 8px 16px rgba(0, 0, 0, 0.45);
+  font-family: var(--font-serif);
+  pointer-events: none;
+  animation: stampPop 240ms cubic-bezier(0.2, 1.1, 0.35, 1.15);
+  z-index: 60;
+}
+
+.result-stamp__title {
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+}
+
+.result-stamp__net {
+  font-family: var(--font-ui);
+  font-weight: 800;
+  font-size: 12px;
+}
+
+.result-stamp--blackjack {
+  background: linear-gradient(180deg, #ffe27b 0%, #cf9527 100%);
+  color: var(--ink);
+}
+
+.result-stamp--win {
+  background: linear-gradient(180deg, #4eb158 0%, #2a6e32 100%);
+  color: #fff8e6;
+}
+
+.result-stamp--push {
+  background: linear-gradient(180deg, #ebd6aa 0%, #b99f6d 100%);
+  color: var(--ink);
+}
+
+.result-stamp--lose {
+  background: linear-gradient(180deg, #c9372f 0%, #831d17 100%);
+  color: #fff1e6;
+}
+
+/* ========================= Top-Right Utilities ========================== */
+
+.utility-corner {
+  position: absolute;
+  right: 16px;
+  top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 60;
+}
+
+.saloon-icon-btn {
+  height: 34px;
+  min-width: 34px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: linear-gradient(180deg, rgba(84, 44, 20, 0.94) 0%, rgba(50, 24, 10, 0.96) 100%);
+  border: 2.5px solid var(--ink);
+  border-radius: 9px;
+  box-shadow: 0 3px 0 var(--ink);
+  color: var(--cream);
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.saloon-icon-btn svg {
+  width: 17px;
+  height: 17px;
+}
+
+.saloon-icon-btn.is-muted .sound-waves {
+  opacity: 0.25;
+}
+
+.saloon-icon-btn:hover {
+  filter: brightness(1.12);
+}
+
+.saloon-icon-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--ink);
+}
+
+/* ===================== Bottom Wooden Rail Controls ====================== */
+
+.rail-left {
+  position: absolute;
+  left: 20px;
+  bottom: 12px;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  z-index: 55;
+}
+
+.brass-plaque {
+  padding: 7px 14px;
+  min-width: 152px;
+  background: linear-gradient(180deg, #522913 0%, #311709 100%);
+  border: 3px solid var(--ink);
+  outline: 2px solid #b68432;
+  outline-offset: -5px;
+  border-radius: 10px;
+  box-shadow: 0 4px 0 var(--ink), 0 8px 16px rgba(0, 0, 0, 0.5);
+}
+
+.brass-plaque__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.brass-plaque__row--sub {
+  margin-top: 2px;
+  padding-top: 2px;
+  border-top: 1px solid rgba(240, 195, 90, 0.28);
+}
+
+.brass-plaque__label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: #d6b164;
+}
+
+.brass-plaque__value {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  color: #ffe9aa;
+}
+
+.brass-plaque__bet {
+  font-size: 13px;
+  color: var(--cream);
+}
+
+.chip-rack {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 10px 8px;
+  background: linear-gradient(180deg, #4b2612 0%, #2b1307 100%);
+  border: 3px solid var(--ink);
+  border-radius: 14px;
+  box-shadow: inset 0 3px 6px rgba(0, 0, 0, 0.55), 0 4px 0 var(--ink);
+  transition: opacity 160ms ease, filter 160ms ease;
+}
+
+.chip-rack.is-inactive {
+  opacity: 0.58;
+  filter: saturate(0.75);
+}
+
+.tray-chip {
+  position: relative;
+  width: 54px;
+  height: 54px;
+  padding: 0;
+  border-radius: 50%;
+  border: 3px solid var(--ink);
+  background: repeating-conic-gradient(from 0deg, var(--chip) 0 18deg, var(--chip-stripe) 18deg 30deg);
+  box-shadow: 0 4px 0 var(--chip-edge), 0 6px 0 var(--ink), 0 8px 8px rgba(0, 0, 0, 0.45);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+}
+
+.tray-chip__inner {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--chip);
+  border: 2px dashed var(--chip-stripe);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tray-chip__label {
+  font-family: var(--font-serif);
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: -0.03em;
+  color: #fff8e7;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.85);
+}
+
+.tray-chip:not(:disabled):hover {
+  transform: translateY(-4px);
+}
+
+.tray-chip.is-selected {
+  transform: translateY(-9px);
+  box-shadow:
+    0 0 0 3px var(--gold),
+    0 5px 0 var(--chip-edge),
+    0 7px 0 var(--ink),
+    0 12px 14px rgba(0, 0, 0, 0.55);
+}
+
+.tray-chip:disabled {
+  opacity: 0.38;
+  transform: none;
+}
+
+.rail-right {
+  position: absolute;
+  right: 20px;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  z-index: 55;
+}
+
+.action-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.saloon-btn {
+  height: 44px;
+  padding: 0 18px;
+  border: 3px solid var(--ink);
+  border-radius: 11px;
+  font-family: var(--font-serif);
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  box-shadow: 0 4px 0 var(--ink), 0 7px 14px rgba(0, 0, 0, 0.48);
+  transition: transform 100ms ease, filter 120ms ease, opacity 140ms ease;
+}
+
+.saloon-btn--gold {
+  background: linear-gradient(180deg, #f6d575 0%, #c68d25 100%);
+  color: var(--ink);
+}
+
+.saloon-btn--crimson {
+  background: linear-gradient(180deg, #d13a31 0%, #8f1d17 100%);
+  color: #fff6e6;
+}
+
+.saloon-btn--wood {
+  background: linear-gradient(180deg, #8b4c24 0%, #5a2c12 100%);
+  color: var(--cream);
+}
+
+.saloon-btn--ghost {
+  background: linear-gradient(180deg, #4b2915 0%, #2d160a 100%);
+  color: #dfc99f;
+}
+
+.saloon-btn:not(:disabled):hover {
+  filter: brightness(1.09);
+  transform: translateY(-2px);
+}
+
+.saloon-btn:not(:disabled):active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--ink);
+}
+
+.saloon-btn:disabled {
+  opacity: 0.42;
+  filter: grayscale(0.35);
+}
+
+/* ============================= Rules Modal ============================== */
+
+.rules-modal {
+  position: absolute;
+  inset: 0;
+  background: rgba(12, 6, 2, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.rules-sheet {
+  position: relative;
+  width: 580px;
+  max-width: 90%;
+  padding: 26px 30px;
+  background: linear-gradient(180deg, #f8ecd2 0%, #e7cf9e 100%);
+  color: var(--ink);
+  border: 4px solid var(--ink);
+  border-radius: 16px;
+  box-shadow: 6px 8px 0 var(--ink), 0 24px 60px rgba(0, 0, 0, 0.75);
+}
+
+.rules-sheet__close {
+  position: absolute;
+  right: 14px;
+  top: 12px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2.5px solid var(--ink);
+  background: var(--crimson);
+  color: var(--cream);
+  font-weight: 800;
+  font-size: 18px;
+  line-height: 24px;
+  padding: 0;
+}
+
+.rules-sheet__title {
+  margin: 0 0 12px;
+  font-family: var(--font-serif);
+  font-size: 24px;
+  border-bottom: 2px solid rgba(43, 26, 14, 0.28);
+  padding-bottom: 8px;
+}
+
+.rules-sheet__list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.42;
+}
+
+.rules-sheet__keys {
+  margin: 14px 0 0;
+  padding-top: 10px;
+  border-top: 2px dashed rgba(43, 26, 14, 0.28);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.rules-sheet__keys code {
+  padding: 1px 5px;
+  background: rgba(43, 26, 14, 0.12);
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+/* ============================== Keyframes =============================== */
+
+@keyframes circlePulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(240, 195, 90, 0.25);
+  }
+  50% {
+    box-shadow: 0 0 18px 4px rgba(240, 195, 90, 0.42);
+  }
+}
+
+@keyframes chipDrop {
+  0% {
+    transform: translate(-50%, calc(-50% - var(--i, 0) * 4.4px - 18px)) scale(1.16);
+  }
+  100% {
+    transform: translate(-50%, calc(-50% - var(--i, 0) * 4.4px)) scale(1);
+  }
+}
+
+@keyframes stampPop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(-8deg) scale(1.45);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(-4deg) scale(1);
+  }
+}
+
+@keyframes shoeJiggle {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-4px) rotate(-1deg);
+  }
+  75% {
+    transform: translateX(4px) rotate(1deg);
+  }
+}
+
+@keyframes nudge {
+  0%,
+  100% {
+    margin-left: 0;
+  }
+  25% {
+    margin-left: -6px;
+  }
+  75% {
+    margin-left: 6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card__flip,
+  .dealer-bubble,
+  .active-ring,
+  .saloon-btn,
+  .tray-chip {
+    transition-duration: 1ms !important;
+  }
+  .seat-hotspot.is-invite,
+  .result-stamp,
+  .chip.is-new {
+    animation: none !important;
+  }
+}
