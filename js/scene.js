@@ -260,6 +260,11 @@
       this.onStateSynced();
     }
 
+    _sayIfPhase(allowedPhases, text, mood) {
+      if (!allowedPhases.includes(this.engine.phase)) return;
+      this.onDealerLine(text, mood);
+    }
+
     _bindEngine() {
       const e = this.engine;
 
@@ -273,7 +278,7 @@
 
         e.on("bankroll:rebuy", () => {
           if (this.audio) this.audio.chip();
-          this.onDealerLine("Čerstvý štos žetonů na stole. Hodně štěstí!", "friendly");
+          this._sayIfPhase([MBJ.PHASE.BETTING], "Čerstvý štos žetonů na stole. Hodně štěstí!", "friendly");
           this.onStateSynced();
         }),
 
@@ -281,7 +286,11 @@
           this._enqueue(async () => {
             this._shoeCards = remaining;
             this._updateShoeLabel();
-            this.onDealerLine("Míchám čerstvý balíček karet…", "neutral");
+            this._sayIfPhase(
+              [MBJ.PHASE.BETTING, MBJ.PHASE.INSURANCE, MBJ.PHASE.PLAYER],
+              "Míchám čerstvý balíček karet…",
+              "neutral"
+            );
             if (this.el.shoeHotspot) {
               this.el.shoeHotspot.classList.add("is-shuffling");
               await U.wait(U.motionDuration(340));
@@ -304,7 +313,7 @@
             this.dealer.cards = [];
             this._setBadge(this.dealer.badgeEl, "");
             this._setActiveHandHighlight(null);
-            this.onDealerLine("Rozdávám karty…", "neutral");
+            this._sayIfPhase([MBJ.PHASE.INSURANCE, MBJ.PHASE.PLAYER, MBJ.PHASE.DEALER], "Rozdávám karty…", "neutral");
 
             for (const h of hands) {
               const badgeEl = this._makeBadge("hand-badge");
@@ -343,7 +352,9 @@
                 { duration: 110, ease: U.easeOutCubic }
               );
               await this.animator.tweenTo(hole, base, { duration: 110, ease: U.easeOutCubic });
-              this.onDealerLine("Blackjack nemám. Jedeš, kovboji.", "neutral");
+              if (this.hands.size > 0) {
+                this._sayIfPhase([MBJ.PHASE.PLAYER], "Blackjack nemám. Jedeš, kovboji.", "neutral");
+              }
             }
           });
         }),
@@ -351,6 +362,7 @@
         e.on("insurance:offered", ({ handId, cost }) => {
           this._enqueue(async () => {
             this._setActiveHandHighlight(handId);
+            if (this.engine.phase !== MBJ.PHASE.INSURANCE) return;
             const hand = this.hands.get(handId);
             const mySeat = Number.isInteger(this.engine.mySeat) ? this.engine.mySeat : -1;
             if (mySeat >= 0 && hand && hand.seat !== mySeat && this.engine.seats) {
@@ -410,7 +422,7 @@
             this._setActiveHandHighlight(handId);
             if (!splitDraw && handId) {
               const hand = this.hands.get(handId);
-              if (hand && this.engine.phase === MBJ.PHASE.PLAYER) {
+              if (hand && hand.cards.length >= 2 && this.engine.phase === MBJ.PHASE.PLAYER) {
                 const mySeat = Number.isInteger(this.engine.mySeat) ? this.engine.mySeat : -1;
                 if (mySeat >= 0 && hand.seat !== mySeat && this.engine.seats) {
                   const owner = this.engine.seats[hand.seat];
@@ -430,7 +442,13 @@
             if (!hand) return;
             this._setBadge(hand.badgeEl, "BLACKJACK", this._badgePos(hand), "blackjack");
             if (this.audio) this.audio.win(true);
-            this.onDealerLine("Blackjack! Pěkná trefa!", "impressed");
+            if (this.hands.size > 0) {
+              this._sayIfPhase(
+                [MBJ.PHASE.PLAYER, MBJ.PHASE.DEALER, MBJ.PHASE.ROUND_OVER],
+                "Blackjack! Pěkná trefa!",
+                "impressed"
+              );
+            }
           });
         }),
 
@@ -451,7 +469,11 @@
             hand.cards.forEach((c) => c.el.classList.add("is-muted"));
             this._setBadge(hand.badgeEl, summary.label, this._badgePos(hand), "push");
             if (hand.stack) hand.stack.setAmount(Math.floor(hand.bet / 2));
-            this.onDealerLine("Rozumný ústup. Půlka sázky je zpět.", "neutral");
+            this._sayIfPhase(
+              [MBJ.PHASE.PLAYER, MBJ.PHASE.DEALER, MBJ.PHASE.ROUND_OVER],
+              "Rozumný ústup. Půlka sázky je zpět.",
+              "neutral"
+            );
           });
         }),
 
@@ -483,7 +505,9 @@
               { x: DEALER.x, y: DEALER.y + 52 },
               bust ? "bust" : "dealer"
             );
-            if (bust) this.onDealerLine("Přetáhl jsem! Všechny živé ruce berou.", "grumpy");
+            if (bust) {
+              this._sayIfPhase([MBJ.PHASE.DEALER, MBJ.PHASE.ROUND_OVER], "Přetáhl jsem! Všechny živé ruce berou.", "grumpy");
+            }
           });
         }),
 
@@ -708,24 +732,30 @@
 
       if (anyWin && this.audio) this.audio.win(anyBJ);
 
-      const mySeat = Number.isInteger(this.engine.mySeat) ? this.engine.mySeat : -1;
-      const myRes =
-        mySeat >= 0 && Array.isArray(res.seatResults)
-          ? res.seatResults.find((sr) => sr.seat === mySeat)
-          : null;
-      const shownNet = myRes && myRes.results && myRes.results.length > 0 ? myRes.net : res.net;
-      const participated = !myRes || (myRes.results && myRes.results.length > 0);
+      if (this.engine.phase === MBJ.PHASE.ROUND_OVER) {
+        const mySeat = Number.isInteger(this.engine.mySeat) ? this.engine.mySeat : -1;
+        const myRes =
+          mySeat >= 0 && Array.isArray(res.seatResults)
+            ? res.seatResults.find((sr) => sr.seat === mySeat)
+            : null;
+        const localPlayed =
+          mySeat < 0 ||
+          (typeof this.engine.didParticipateInRound === "function"
+            ? this.engine.didParticipateInRound(res.round)
+            : Boolean(myRes && myRes.results && myRes.results.length > 0));
+        const shownNet = myRes && myRes.results && myRes.results.length > 0 ? myRes.net : res.net;
 
-      if (res.dealerBlackjack) {
-        this.onDealerLine("Blackjack krupiéra! Bohužel, kovboji.", "grumpy");
-      } else if (!participated) {
-        this.onDealerLine("Kolo skončilo. V příštím kole už hraješ s námi!", "friendly");
-      } else if (shownNet > 0) {
-        this.onDealerLine(`Pěkná ruka! Bereš ${U.formatMoney(shownNet)} čistého.`, "impressed");
-      } else if (shownNet === 0) {
-        this.onDealerLine("Remíza. Sázky se vracejí zpět.", "neutral");
-      } else if (!res.dealerBust) {
-        this.onDealerLine("Dnes bere saloon. Zkus další kolo!", "grumpy");
+        if (!localPlayed) {
+          this.onDealerLine("Kolo skončilo. Hoď žetony do kruhu na další hru!", "friendly");
+        } else if (res.dealerBlackjack) {
+          this.onDealerLine("Blackjack krupiéra! Bohužel, kovboji.", "grumpy");
+        } else if (shownNet > 0) {
+          this.onDealerLine(`Pěkná ruka! Bereš ${U.formatMoney(shownNet)} čistého.`, "impressed");
+        } else if (shownNet === 0) {
+          this.onDealerLine("Remíza. Sázky se vracejí zpět.", "neutral");
+        } else if (!res.dealerBust) {
+          this.onDealerLine("Dnes bere saloon. Zkus další kolo!", "grumpy");
+        }
       }
 
       await Promise.all(chipTasks);
@@ -776,7 +806,7 @@
           .then(() => card.destroy());
       });
       await Promise.all(sweeps);
-      this.onDealerLine("Hoď žetony do kruhu a klikni na zásobník.", "friendly");
+      this._sayIfPhase([MBJ.PHASE.BETTING], "Hoď žetony do kruhu a klikni na zásobník.", "friendly");
     }
 
     /** Instantaneously synchronize visual table with a live snapshot (e.g., mid-round join). */

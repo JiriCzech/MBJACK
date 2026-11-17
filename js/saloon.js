@@ -1,4 +1,5 @@
-/* Saloon entry screen (character creator), player profile HUD + modal,
+/* Saloon entry screen (smart returning-player view + character creator),
+   player profile HUD + modal (with avatar switcher & account deletion),
    and secret achievement celebration overlay. */
 (function (global) {
   "use strict";
@@ -43,6 +44,8 @@
      *   elements: Record<string, HTMLElement>,
      *   onEnterTable: (profile: object) => void,
      *   onLogout: () => Promise<void>,
+     *   onReturnToSaloon?: () => Promise<void>,
+     *   onDeleteAccount?: () => Promise<void>,
      *   onProfileUpdated?: (profile: object) => void
      * }} options
      */
@@ -53,6 +56,8 @@
       this.el = options.elements;
       this.onEnterTable = options.onEnterTable;
       this.onLogout = options.onLogout;
+      this.onReturnToSaloon = options.onReturnToSaloon || options.onLogout;
+      this.onDeleteAccount = options.onDeleteAccount || options.onLogout;
       this.onProfileUpdated = options.onProfileUpdated || (() => {});
 
       this.selectedAvatarId = 1;
@@ -62,7 +67,7 @@
     }
 
     init() {
-      this._renderAvatarGrid();
+      this._renderSaloonAvatarGrid();
       this._bindEvents();
       this.store.onChange((profile) => this.syncProfileViews(profile));
       if (this.fb) {
@@ -71,42 +76,61 @@
       return this;
     }
 
-    _renderAvatarGrid() {
-      const grid = this.el.saloonAvatarGrid;
+    _renderAvatarGridInto(grid, selectedId, profile, onSelect, onLockedClick) {
       if (!grid) return;
       grid.innerHTML = "";
       for (const av of MBJ.AVATARS) {
+        const unlocked = this.store.isAvatarUnlocked(av.id, profile);
         const btn = document.createElement("button");
         btn.type = "button";
-        btn.className = av.unlocked ? "avatar-slot is-unlocked" : "avatar-slot is-locked";
+        btn.className = unlocked ? "avatar-slot is-unlocked" : "avatar-slot is-locked";
         btn.dataset.avatarId = String(av.id);
-        if (av.unlocked) {
+        if (unlocked) {
+          const active = av.id === Number(selectedId);
+          btn.classList.toggle("is-selected", active);
+          btn.setAttribute("aria-pressed", String(active));
           btn.setAttribute("aria-label", `Vybrat portrét: ${av.label}`);
           btn.innerHTML = `
             <img class="avatar-slot__img" src="${av.src}" alt="${av.label}" draggable="false">
             <span class="avatar-slot__check" aria-hidden="true">✓</span>`;
           btn.addEventListener("click", () => {
-            if (this.audio) this.audio.chip();
-            this.selectedAvatarId = av.id;
-            this._syncAvatarSelection();
+            if (this.audio) {
+              this.audio.unlock();
+              this.audio.chip();
+            }
+            onSelect(av.id);
           });
         } else {
-          btn.setAttribute("aria-label", "Zamčený avatar — překvapení do budoucna");
-          btn.title = "Překvapení do budoucna — zatím zamčeno";
+          btn.setAttribute("aria-label", "Zamčený avatar — tajná odměna");
+          btn.title = "Tajná odměna — zatím zamčeno";
           btn.innerHTML = `${LOCK_SVG}<span class="avatar-slot__lock-tag">Zamčeno</span>`;
           btn.addEventListener("click", () => {
             btn.classList.remove("is-nudged");
             requestAnimationFrame(() => btn.classList.add("is-nudged"));
             setTimeout(() => btn.classList.remove("is-nudged"), 320);
-            this.setSheriffLine("Tenhle kovboj ještě do města nedorazil. Vyber si z prvních tří!", "neutral");
+            if (onLockedClick) onLockedClick();
           });
         }
         grid.appendChild(btn);
       }
-      this._syncAvatarSelection();
     }
 
-    _syncAvatarSelection() {
+    _renderSaloonAvatarGrid() {
+      this._renderAvatarGridInto(
+        this.el.saloonAvatarGrid,
+        this.selectedAvatarId,
+        null,
+        (id) => {
+          this.selectedAvatarId = id;
+          this._syncSaloonAvatarSelection();
+        },
+        () => {
+          this.setSheriffLine("Tenhle kovboj je zatím pod zámkem. Vyber si ze základních tří!", "neutral");
+        }
+      );
+    }
+
+    _syncSaloonAvatarSelection() {
       const grid = this.el.saloonAvatarGrid;
       if (!grid) return;
       for (const btn of grid.querySelectorAll(".avatar-slot.is-unlocked")) {
@@ -116,7 +140,51 @@
       }
     }
 
+    _renderProfileAvatarGrid(profile) {
+      if (!this.el.profileAvatarGrid || !profile) return;
+      this._renderAvatarGridInto(
+        this.el.profileAvatarGrid,
+        profile.avatarId,
+        profile,
+        async (id) => {
+          const updated = await this.store.setAvatar(id);
+          if (updated) {
+            this.syncProfileViews(updated);
+            this.onProfileUpdated(updated);
+          }
+        },
+        null
+      );
+    }
+
     _bindEvents() {
+      if (this.el.saloonContinueBtn) {
+        this.el.saloonContinueBtn.addEventListener("click", () => {
+          if (this.audio) this.audio.unlock();
+          if (this.store.current) {
+            this.hideSaloon();
+            this.onEnterTable(this.store.current);
+          }
+        });
+      }
+
+      if (this.el.saloonSwitchAccountBtn) {
+        this.el.saloonSwitchAccountBtn.addEventListener("click", async () => {
+          if (this._busy) return;
+          this._busy = true;
+          try {
+            await this.onLogout();
+            this.selectedAvatarId = 1;
+            if (this.el.saloonFirstName) this.el.saloonFirstName.value = "";
+            if (this.el.saloonLastName) this.el.saloonLastName.value = "";
+            this._renderSaloonAvatarGrid();
+            this.showSaloon();
+          } finally {
+            this._busy = false;
+          }
+        });
+      }
+
       this.el.saloonRandomBtn.addEventListener("click", () => {
         if (this.audio) {
           this.audio.unlock();
@@ -135,7 +203,6 @@
       this.el.saloonGuestBtn.addEventListener("click", () => this._handleGuestEnter());
       this.el.saloonGoogleBtn.addEventListener("click", () => this._handleGoogleEnter());
 
-      // Submit on Enter inside form inputs triggers guest or highlights choice
       const onInputKey = (e) => {
         if (e.key === "Enter") {
           e.preventDefault();
@@ -155,8 +222,31 @@
       this.el.profileUpgradeBtn.addEventListener("click", () => this._handleUpgradeGoogle());
       this.el.profileLogoutBtn.addEventListener("click", async () => {
         this.toggleProfileModal(false);
-        await this.onLogout();
+        await this.onReturnToSaloon();
       });
+
+      if (this.el.profileDeleteBtn && this.el.deleteAccountConfirm) {
+        this.el.profileDeleteBtn.addEventListener("click", () => {
+          this.el.deleteAccountConfirm.hidden = false;
+        });
+      }
+      if (this.el.profileDeleteConfirmNo && this.el.deleteAccountConfirm) {
+        this.el.profileDeleteConfirmNo.addEventListener("click", () => {
+          this.el.deleteAccountConfirm.hidden = true;
+        });
+      }
+      if (this.el.profileDeleteConfirmYes) {
+        this.el.profileDeleteConfirmYes.addEventListener("click", async () => {
+          this.el.profileDeleteConfirmYes.disabled = true;
+          try {
+            this.toggleProfileModal(false);
+            if (this.el.deleteAccountConfirm) this.el.deleteAccountConfirm.hidden = true;
+            await this.onDeleteAccount();
+          } finally {
+            this.el.profileDeleteConfirmYes.disabled = false;
+          }
+        });
+      }
     }
 
     setSheriffLine(text, mood) {
@@ -216,21 +306,22 @@
         return;
       }
       const { firstName, lastName } = this._readFormName();
-      const hasFormValues = Boolean(firstName && lastName);
       this._setFormBusy(true, "Otevírám přihlášení přes Google…");
       try {
         const profile = await this.store.signInWithGoogleProfile({
           firstName,
           lastName,
           avatarId: this.selectedAvatarId,
-          hasFormValues,
         });
         this.hideSaloon();
         this.onEnterTable(profile);
       } catch (err) {
         const code = err && err.code;
         if (code === "NEED_NAME") {
-          this.setSheriffLine("Pro nového měšťana napiš jméno a příjmení (nebo klikni Random) a pak znovu Google!", "neutral");
+          this.setSheriffLine(
+            "Pro novou postavu napiš nejprve herní jméno a příjmení (nebo klikni Random) a pak klikni na Google!",
+            "neutral"
+          );
           this.el.saloonFirstName.focus();
         } else if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
           this.setSheriffLine("Přihlášení jsi zavřel. Můžeš to zkusit znovu nebo jet jen kolem.", "neutral");
@@ -261,7 +352,25 @@
 
     showSaloon() {
       if (this.el.saloonScreen) this.el.saloonScreen.hidden = false;
-      this.setSheriffLine("Vítej ve městě kovboji, jak se jmenuješ?", "neutral");
+      const profile = this.store.current;
+      const hasProfile = Boolean(profile);
+
+      if (this.el.saloonExistingView) this.el.saloonExistingView.hidden = !hasProfile;
+      if (this.el.saloonCreateView) this.el.saloonCreateView.hidden = hasProfile;
+
+      if (hasProfile) {
+        this.syncProfileViews(profile);
+        if (this.el.saloonPanelSub) {
+          this.el.saloonPanelSub.textContent = "Vítej zpátky v saloonu!";
+        }
+        this.setSheriffLine(`Vítej zpátky ve městě, ${profile.firstName}! Jdeš rovnou ke stolu?`, "friendly");
+      } else {
+        this._renderSaloonAvatarGrid();
+        if (this.el.saloonPanelSub) {
+          this.el.saloonPanelSub.textContent = "Zapiš se do knihy hráčů a přisedni ke stolu";
+        }
+        this.setSheriffLine("Vítej ve městě kovboji, jak se jmenuješ?", "neutral");
+      }
       this._syncProfileCornerVisibility();
     }
 
@@ -284,8 +393,9 @@
 
     _syncProfileCornerVisibility() {
       const hasProfile = Boolean(this.store.current);
+      const onSaloon = this.isSaloonVisible();
       if (this.el.profileCorner) {
-        this.el.profileCorner.hidden = !hasProfile;
+        this.el.profileCorner.hidden = !hasProfile || onSaloon;
       }
     }
 
@@ -300,9 +410,21 @@
       if (!profile) return;
 
       const fullName = this.store.getFullName(profile);
-      const avatarSrc = this.store.getAvatarSrc(profile.avatarId);
+      const avatarSrc = this.store.getAvatarSrc(profile.avatarId, profile);
       const moneyText = U.formatMoney(profile.bankroll);
       const isGoogle = profile.mode === "google";
+
+      // Returning view card on Saloon screen
+      if (this.el.saloonExistingAvatar) this.el.saloonExistingAvatar.src = avatarSrc;
+      if (this.el.saloonExistingName) this.el.saloonExistingName.textContent = fullName;
+      if (this.el.saloonExistingMode) {
+        this.el.saloonExistingMode.textContent = isGoogle ? "Jsem z města · Google účet" : "Jedu jen kolem · Lokální profil";
+        this.el.saloonExistingMode.dataset.mode = profile.mode;
+      }
+      if (this.el.saloonExistingBank) this.el.saloonExistingBank.textContent = moneyText;
+      if (this.el.saloonExistingStats) {
+        this.el.saloonExistingStats.textContent = `Hry: ${profile.stats.gamesPlayed || 0} · Výhry: ${profile.stats.wins || 0}`;
+      }
 
       // Top-left HUD badge
       if (this.el.profileMiniAvatar) this.el.profileMiniAvatar.src = avatarSrc;
@@ -326,6 +448,8 @@
       if (this.el.profileUpgradeBtn) {
         this.el.profileUpgradeBtn.hidden = isGoogle;
       }
+
+      this._renderProfileAvatarGrid(profile);
 
       // Secret Achievements section: completely hidden until at least 1 achievement unlocked
       const unlocked = this.store.getUnlockedAchievements();
@@ -357,6 +481,7 @@
 
     toggleProfileModal(open) {
       if (!this.el.profileModal) return;
+      if (this.el.deleteAccountConfirm) this.el.deleteAccountConfirm.hidden = true;
       if (open && this.store.current) {
         this.syncProfileViews(this.store.current);
       }
@@ -377,7 +502,13 @@
         this.el.achievementToastTitle.textContent = ach.title;
       }
       if (this.el.achievementToastDesc) {
-        this.el.achievementToastDesc.textContent = ach.description;
+        this.el.achievementToastDesc.textContent =
+          ach.id === "first_blackjack"
+            ? `${ach.description} Odemkl se ti tajný 4. portrét kovboje!`
+            : ach.description;
+      }
+      if (this.store.current) {
+        this.syncProfileViews(this.store.current);
       }
       toast.hidden = false;
       toast.classList.remove("is-visible");

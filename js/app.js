@@ -61,6 +61,16 @@
 
       // Saloon entry screen
       saloonScreen: byId("saloonScreen"),
+      saloonPanelSub: byId("saloonPanelSub"),
+      saloonExistingView: byId("saloonExistingView"),
+      saloonExistingAvatar: byId("saloonExistingAvatar"),
+      saloonExistingName: byId("saloonExistingName"),
+      saloonExistingMode: byId("saloonExistingMode"),
+      saloonExistingBank: byId("saloonExistingBank"),
+      saloonExistingStats: byId("saloonExistingStats"),
+      saloonContinueBtn: byId("saloonContinueBtn"),
+      saloonSwitchAccountBtn: byId("saloonSwitchAccountBtn"),
+      saloonCreateView: byId("saloonCreateView"),
       saloonSheriffBubble: byId("saloonSheriffBubble"),
       saloonSheriffText: byId("saloonSheriffText"),
       saloonFirstName: byId("saloonFirstName"),
@@ -90,8 +100,13 @@
       profileStatGames: byId("profileStatGames"),
       profileStatWins: byId("profileStatWins"),
       profileStatLosses: byId("profileStatLosses"),
+      profileAvatarGrid: byId("profileAvatarGrid"),
       profileAchievementsSection: byId("profileAchievementsSection"),
       profileAchievementsList: byId("profileAchievementsList"),
+      profileDeleteBtn: byId("profileDeleteBtn"),
+      deleteAccountConfirm: byId("deleteAccountConfirm"),
+      profileDeleteConfirmYes: byId("profileDeleteConfirmYes"),
+      profileDeleteConfirmNo: byId("profileDeleteConfirmNo"),
       profileUpgradeBtn: byId("profileUpgradeBtn"),
       profileLogoutBtn: byId("profileLogoutBtn"),
 
@@ -175,6 +190,12 @@
       ui.sync();
     };
 
+    const leaveAndResetVisualTable = async () => {
+      await table.leaveTable();
+      scene.hydrateFromSnapshot({ phase: MBJ.PHASE.BETTING, seatBets: [0, 0, 0] });
+      ui.renderSeats([null, null, null], -1, MBJ.PHASE.BETTING, null, 0);
+    };
+
     saloon = new MBJ.SaloonUI({
       profileStore,
       firebase: fb,
@@ -183,11 +204,20 @@
       onEnterTable: (profile) => {
         void enterTableFlow(profile);
       },
+      onReturnToSaloon: async () => {
+        await leaveAndResetVisualTable();
+        saloon.showSaloon();
+      },
       onLogout: async () => {
-        await table.leaveTable();
-        scene.hydrateFromSnapshot({ phase: MBJ.PHASE.BETTING, seatBets: [0, 0, 0] });
-        ui.renderSeats([null, null, null], -1, MBJ.PHASE.BETTING, null, 0);
+        await leaveAndResetVisualTable();
         await profileStore.logout();
+        saloon.showSaloon();
+      },
+      onDeleteAccount: async () => {
+        await leaveAndResetVisualTable();
+        await profileStore.deleteAccount();
+        if (elements.saloonFirstName) elements.saloonFirstName.value = "";
+        if (elements.saloonLastName) elements.saloonLastName.value = "";
         saloon.showSaloon();
       },
       onProfileUpdated: (profile) => {
@@ -207,7 +237,7 @@
     if (elements.kickedSaloonBtn) {
       elements.kickedSaloonBtn.addEventListener("click", async () => {
         if (elements.kickedModal) elements.kickedModal.hidden = true;
-        await profileStore.logout();
+        await leaveAndResetVisualTable();
         saloon.showSaloon();
       });
     }
@@ -216,13 +246,10 @@
       void table.leaveTable();
     });
 
-    // Resolve initial auto-login or show Saloon screen
-    const existing = await profileStore.resolveInitialProfile();
-    if (existing) {
-      await enterTableFlow(existing);
-    } else {
-      saloon.showSaloon();
-    }
+    // Resolve initial profile -> Saloon always greets returning cowboys with quick continue,
+    // or shows new character form if no account exists yet.
+    await profileStore.resolveInitialProfile();
+    saloon.showSaloon();
 
     global.MBJack = { table, engine: table, scene, ui, saloon, profileStore, firebase: fb, audio, rules: MBJ.RULES };
   }

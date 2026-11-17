@@ -57,7 +57,7 @@
     { id: 1, unlocked: true, src: "assets/avatar-1.jpg", label: "Pistolník" },
     { id: 2, unlocked: true, src: "assets/avatar-2.jpg", label: "Střelkyně" },
     { id: 3, unlocked: true, src: "assets/avatar-3.jpg", label: "Karetní vlk" },
-    { id: 4, unlocked: false, src: "", label: "Tajemný cizinec" },
+    { id: 4, unlocked: false, unlockAchievement: "first_blackjack", src: "assets/avatar-4.jpg", label: "Eso ze Saloonu" },
     { id: 5, unlocked: false, src: "", label: "Zlatokop" },
     { id: 6, unlocked: false, src: "", label: "Saloonová hvězda" },
   ]);
@@ -78,14 +78,22 @@
       .slice(0, 24);
   }
 
+  function hasAchievement(achievements, id) {
+    return Boolean(achievements && typeof achievements === "object" && achievements[id]);
+  }
+
   function defaultProfile(opts) {
     const o = opts || {};
+    const achievements =
+      o.achievements && typeof o.achievements === "object" ? Object.assign({}, o.achievements) : {};
+    const allowedIds = hasAchievement(achievements, "first_blackjack") ? [1, 2, 3, 4] : [1, 2, 3];
+    const requestedAvatar = Number(o.avatarId);
     return {
       mode: o.mode === "google" ? "google" : "local",
       uid: o.uid || null,
       firstName: sanitizeName(o.firstName) || "Luke",
       lastName: sanitizeName(o.lastName) || "Duke",
-      avatarId: [1, 2, 3].includes(Number(o.avatarId)) ? Number(o.avatarId) : 1,
+      avatarId: allowedIds.includes(requestedAvatar) ? requestedAvatar : 1,
       bankroll: Number.isFinite(Number(o.bankroll))
         ? Math.max(0, Math.round(Number(o.bankroll)))
         : MBJ.RULES.startingBankroll,
@@ -94,7 +102,7 @@
         wins: Math.max(0, Math.round(Number(o.stats?.wins) || 0)),
         losses: Math.max(0, Math.round(Number(o.stats?.losses) || 0)),
       },
-      achievements: o.achievements && typeof o.achievements === "object" ? Object.assign({}, o.achievements) : {},
+      achievements,
     };
   }
 
@@ -128,9 +136,21 @@
       return { firstName: first, lastName: last };
     }
 
-    getAvatarSrc(avatarId) {
-      const found = AVATARS.find((a) => a.id === Number(avatarId) && a.unlocked);
-      return found ? found.src : AVATARS[0].src;
+    isAvatarUnlocked(avatarId, profile = this.current) {
+      const av = AVATARS.find((a) => a.id === Number(avatarId));
+      if (!av) return false;
+      if (av.unlocked) return true;
+      if (av.unlockAchievement && profile && hasAchievement(profile.achievements, av.unlockAchievement)) {
+        return true;
+      }
+      return false;
+    }
+
+    getAvatarSrc(avatarId, profile = this.current) {
+      const id = Number(avatarId);
+      const found = AVATARS.find((a) => a.id === id);
+      if (!found || !this.isAvatarUnlocked(id, profile)) return AVATARS[0].src;
+      return found.src || AVATARS[0].src;
     }
 
     getFullName(profile = this.current) {
@@ -234,7 +254,7 @@
       return profile;
     }
 
-    async signInWithGoogleProfile({ firstName, lastName, avatarId, hasFormValues }) {
+    async signInWithGoogleProfile({ firstName, lastName, avatarId }) {
       if (!this.fb || !this.fb.isAvailable()) {
         throw new Error("Firebase není připojeno.");
       }
@@ -242,50 +262,30 @@
       const existing = await this.fb.loadUserProfile(user.uid);
       let profile;
       if (existing && existing.firstName && existing.lastName) {
+        // Always preserve existing cowboy identity, bankroll, stats & achievements
         profile = defaultProfile(
           Object.assign({}, existing, {
             mode: "google",
             uid: user.uid,
-            firstName: hasFormValues && sanitizeName(firstName) ? firstName : existing.firstName,
-            lastName: hasFormValues && sanitizeName(lastName) ? lastName : existing.lastName,
-            avatarId: hasFormValues ? avatarId : existing.avatarId,
           })
         );
-        if (hasFormValues) {
-          await this.fb.saveUserProfile(user.uid, profile);
-        }
       } else {
         const cleanFirst = sanitizeName(firstName);
         const cleanLast = sanitizeName(lastName);
         if (!cleanFirst || !cleanLast) {
-          // Use Google display name fallback if user had an empty form on brand-new account
-          const parts = String(user.displayName || "").trim().split(/\s+/);
-          const fallbackFirst = cleanFirst || parts[0] || "";
-          const fallbackLast = cleanLast || parts.slice(1).join(" ") || "";
-          if (!fallbackFirst || !fallbackLast) {
-            await this.fb.signOut();
-            const err = new Error("NEED_NAME");
-            err.code = "NEED_NAME";
-            throw err;
-          }
-          profile = defaultProfile({
-            mode: "google",
-            uid: user.uid,
-            firstName: fallbackFirst,
-            lastName: fallbackLast,
-            avatarId,
-            bankroll: MBJ.RULES.startingBankroll,
-          });
-        } else {
-          profile = defaultProfile({
-            mode: "google",
-            uid: user.uid,
-            firstName: cleanFirst,
-            lastName: cleanLast,
-            avatarId,
-            bankroll: MBJ.RULES.startingBankroll,
-          });
+          await this.fb.signOut();
+          const err = new Error("NEED_NAME");
+          err.code = "NEED_NAME";
+          throw err;
         }
+        profile = defaultProfile({
+          mode: "google",
+          uid: user.uid,
+          firstName: cleanFirst,
+          lastName: cleanLast,
+          avatarId,
+          bankroll: MBJ.RULES.startingBankroll,
+        });
         await this.fb.saveUserProfile(user.uid, profile);
       }
 
@@ -393,6 +393,30 @@
         list.push(Object.assign({}, def, { unlockedAt: meta.unlockedAt || Date.now() }));
       }
       return list;
+    }
+
+    async setAvatar(avatarId) {
+      if (!this.current) return null;
+      const id = Number(avatarId);
+      if (!this.isAvatarUnlocked(id, this.current)) return this.current;
+      if (this.current.avatarId === id) return this.current;
+      this.current.avatarId = id;
+      this._notify();
+      await this.persistCurrent();
+      return this.current;
+    }
+
+    async deleteAccount() {
+      const curr = this.current;
+      if (curr && curr.mode === "google" && curr.uid && this.fb && this.fb.isAvailable()) {
+        await this.fb.deleteUserProfile(curr.uid);
+        await this.fb.signOut();
+      } else if (this.fb && this.fb.isAvailable()) {
+        this.fb.detachPresence();
+      }
+      this.clearLocal();
+      this.current = null;
+      this._notify();
     }
 
     async logout() {

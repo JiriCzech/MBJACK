@@ -14,7 +14,7 @@
           ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 24"
         },
         "avatarId": {
-          ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 3"
+          ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 6"
         },
         "bankroll": {
           ".validate": "newData.isNumber() && newData.val() >= 0"
@@ -26,7 +26,7 @@
         },
         "achievements": {
           "$achId": {
-            ".validate": "!data.exists() || data.val() !== null"
+            ".validate": "newData.hasChildren(['unlockedAt'])"
           }
         }
       }
@@ -52,7 +52,7 @@
         "seats": {
           "$seat": {
             ".validate": "$seat === '0' || $seat === '1' || $seat === '2'",
-            ".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid) || (data.child('uid').val() === auth.uid && (!newData.exists() || newData.child('uid').val() === auth.uid)) || (root.child('rooms').child($roomId).child('meta/hostUid').val() === auth.uid && !newData.exists()))"
+            ".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid) || (data.child('uid').val() === auth.uid && (!newData.exists() || newData.child('uid').val() === auth.uid)) || (root.child('rooms').child($roomId).child('meta/hostUid').val() === auth.uid && !newData.exists()) || (!newData.exists() && !root.child('rooms').child($roomId).child('presence').child(data.child('uid').val()).exists()))"
           }
         },
         "actions": {

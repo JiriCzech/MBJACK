@@ -191,6 +191,11 @@
       const payload = Object.assign({}, patch, { updatedAt: this.serverTimestamp });
       await this.db.ref(`users/${uid}`).update(payload);
     }
+
+    async deleteUserProfile(uid) {
+      if (!this.isAvailable() || !uid) return;
+      await this.db.ref(`users/${uid}`).remove();
+    }
   }
 
   MBJ.firebase = new FirebaseBridge();

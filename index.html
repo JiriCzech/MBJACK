@@ -185,66 +185,79 @@
       <section class="saloon-screen" id="saloonScreen" aria-label="Vstup do saloonu" hidden>
         <img class="saloon-screen__bg" src="assets/saloon-entry.jpg" alt="" draggable="false">
 
-        <!-- Subtle atmospheric animation (rolling tumbleweed & lantern glow) -->
-        <div class="saloon-ambient" aria-hidden="true">
-          <div class="saloon-lantern-glow saloon-lantern-glow--left"></div>
-          <div class="saloon-lantern-glow saloon-lantern-glow--right"></div>
-          <div class="saloon-tumbleweed">
-            <svg viewBox="0 0 80 80" fill="none">
-              <circle cx="40" cy="40" r="28" stroke="#6d4721" stroke-width="2.5" stroke-dasharray="9 6"/>
-              <path d="M18 32c14-12 34-14 44 4M16 48c16 14 36 10 46-6M28 16c-8 16-4 38 14 48M52 16c8 18 2 40-14 48M22 40h36" stroke="#85582b" stroke-width="2.2" stroke-linecap="round"/>
-              <path d="M26 24c10 8 18 22 28 32M54 24c-12 8-20 20-28 32" stroke="#4e3015" stroke-width="2" stroke-linecap="round"/>
-            </svg>
-          </div>
-        </div>
-
         <!-- Sheriff speech bubble pointing to the Sheriff on the right -->
         <aside class="dealer-bubble saloon-sheriff-bubble is-visible" id="saloonSheriffBubble" data-mood="neutral" aria-live="polite">
           <span class="dealer-bubble__text" id="saloonSheriffText">Vítej ve městě kovboji, jak se jmenuješ?</span>
         </aside>
 
-        <!-- Western character creation ledger on the left -->
+        <!-- Western character creation / returning cowboy ledger on the left -->
         <div class="saloon-panel">
           <header class="saloon-panel__header">
             <h1 class="saloon-panel__title">MB JACK SALOON</h1>
-            <p class="saloon-panel__sub">Zapiš se do knihy hráčů a přisedni ke stolu</p>
+            <p class="saloon-panel__sub" id="saloonPanelSub">Zapiš se do knihy hráčů a přisedni ke stolu</p>
           </header>
 
-          <div class="saloon-form-row">
-            <label class="saloon-field">
-              <span class="saloon-field__label">Jméno</span>
-              <input class="saloon-input" id="saloonFirstName" type="text" maxlength="20" placeholder="Luke" autocomplete="given-name">
-            </label>
-            <label class="saloon-field">
-              <span class="saloon-field__label">Příjmení</span>
-              <input class="saloon-input" id="saloonLastName" type="text" maxlength="20" placeholder="Duke" autocomplete="family-name">
-            </label>
-            <button class="saloon-btn saloon-btn--wood saloon-random-btn" id="saloonRandomBtn" type="button" title="Vygenerovat náhodné westernové jméno">
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1.2" fill="currentColor"/><circle cx="15.5" cy="8.5" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="8.5" cy="15.5" r="1.2" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1.2" fill="currentColor"/></svg>Random
-            </button>
+          <!-- Smart returning-player view (shown when a saved profile already exists) -->
+          <div class="saloon-existing" id="saloonExistingView" hidden>
+            <div class="saloon-existing-card">
+              <img class="saloon-existing-card__avatar" id="saloonExistingAvatar" alt="" draggable="false">
+              <div class="saloon-existing-card__meta">
+                <h2 class="saloon-existing-card__name" id="saloonExistingName"></h2>
+                <span class="profile-hero__tag" id="saloonExistingMode"></span>
+                <div class="saloon-existing-card__stats">
+                  <span>Zůstatek: <strong id="saloonExistingBank"></strong></span>
+                  <span id="saloonExistingStats"></span>
+                </div>
+              </div>
+            </div>
+            <div class="saloon-existing__actions">
+              <button class="saloon-btn saloon-btn--gold saloon-continue-btn" id="saloonContinueBtn" type="button">
+                Pokračovat ke stolu
+              </button>
+              <button class="saloon-btn saloon-btn--ghost saloon-switch-btn" id="saloonSwitchAccountBtn" type="button">
+                Hrát za někoho jiného / Odhlásit se
+              </button>
+            </div>
           </div>
 
-          <div class="saloon-avatars">
-            <span class="saloon-field__label">Vyber si portrét (3×2)</span>
-            <div class="saloon-avatar-grid" id="saloonAvatarGrid"></div>
-          </div>
+          <!-- New character creation form -->
+          <div id="saloonCreateView">
+            <div class="saloon-form-row">
+              <label class="saloon-field">
+                <span class="saloon-field__label">Jméno</span>
+                <input class="saloon-input" id="saloonFirstName" type="text" maxlength="20" placeholder="Luke" autocomplete="given-name">
+              </label>
+              <label class="saloon-field">
+                <span class="saloon-field__label">Příjmení</span>
+                <input class="saloon-input" id="saloonLastName" type="text" maxlength="20" placeholder="Duke" autocomplete="family-name">
+              </label>
+              <button class="saloon-btn saloon-btn--wood saloon-random-btn" id="saloonRandomBtn" type="button" title="Vygenerovat náhodné westernové jméno">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1.2" fill="currentColor"/><circle cx="15.5" cy="8.5" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="8.5" cy="15.5" r="1.2" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1.2" fill="currentColor"/></svg>Random
+              </button>
+            </div>
 
-          <p class="saloon-status" id="saloonStatusText" hidden></p>
+            <div class="saloon-avatars">
+              <span class="saloon-field__label">Vyber si portrét (3×2)</span>
+              <div class="saloon-avatar-grid" id="saloonAvatarGrid"></div>
+            </div>
 
-          <div class="saloon-actions">
-            <button class="saloon-btn saloon-btn--wood saloon-choice-btn" id="saloonGuestBtn" type="button">
-              <span class="saloon-choice-btn__title">Jedu jen kolem</span>
-              <span class="saloon-choice-btn__sub">Uložit jen v prohlížeči</span>
-            </button>
-            <button class="saloon-btn saloon-btn--gold saloon-choice-btn" id="saloonGoogleBtn" type="button">
-              <span class="saloon-choice-btn__title">
-                <svg class="google-g-icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <path fill="#EA4335" d="M12 10.2v3.9h5.5c-.2 1.3-1.5 3.9-5.5 3.9-3.3 0-6-2.7-6-6s2.7-6 6-6c1.9 0 3.1.8 3.8 1.5l2.6-2.5C16.7 3.4 14.6 2.5 12 2.5 6.8 2.5 2.5 6.8 2.5 12s4.3 9.5 9.5 9.5c5.5 0 9.1-3.8 9.1-9.2 0-.6-.1-1.1-.2-1.6H12Z"/>
-                </svg>
-                Jsem z města
-              </span>
-              <span class="saloon-choice-btn__sub">Přihlásit Googlem do cloudu</span>
-            </button>
+            <p class="saloon-status" id="saloonStatusText" hidden></p>
+
+            <div class="saloon-actions">
+              <button class="saloon-btn saloon-btn--wood saloon-choice-btn" id="saloonGuestBtn" type="button">
+                <span class="saloon-choice-btn__title">Jedu jen kolem</span>
+                <span class="saloon-choice-btn__sub">Uložit jen v prohlížeči</span>
+              </button>
+              <button class="saloon-btn saloon-btn--gold saloon-choice-btn" id="saloonGoogleBtn" type="button">
+                <span class="saloon-choice-btn__title">
+                  <svg class="google-g-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path fill="#EA4335" d="M12 10.2v3.9h5.5c-.2 1.3-1.5 3.9-5.5 3.9-3.3 0-6-2.7-6-6s2.7-6 6-6c1.9 0 3.1.8 3.8 1.5l2.6-2.5C16.7 3.4 14.6 2.5 12 2.5 6.8 2.5 2.5 6.8 2.5 12s4.3 9.5 9.5 9.5c5.5 0 9.1-3.8 9.1-9.2 0-.6-.1-1.1-.2-1.6H12Z"/>
+                  </svg>
+                  Jsem z města
+                </span>
+                <span class="saloon-choice-btn__sub">Přihlásit Googlem do cloudu</span>
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -292,15 +305,33 @@
             </div>
           </div>
 
+          <!-- Change Avatar section -->
+          <section class="profile-avatar-section" id="profileAvatarSection">
+            <h3 class="profile-achievements__title">Změna portrétu</h3>
+            <div class="profile-avatar-grid" id="profileAvatarGrid"></div>
+          </section>
+
           <!-- Completely hidden until the player unlocks their first secret achievement -->
           <section class="profile-achievements" id="profileAchievementsSection" hidden>
             <h3 class="profile-achievements__title">Achievementy</h3>
             <div class="profile-achievements__list" id="profileAchievementsList"></div>
           </section>
 
+          <!-- Delete account confirmation -->
+          <div class="delete-confirm" id="deleteAccountConfirm" hidden>
+            <p class="delete-confirm__text">Opravdu chceš nenávratně smazat svůj účet a všechny statistiky?</p>
+            <div class="delete-confirm__actions">
+              <button class="saloon-btn saloon-btn--crimson" id="profileDeleteConfirmYes" type="button">Ano, smazat účet</button>
+              <button class="saloon-btn saloon-btn--ghost" id="profileDeleteConfirmNo" type="button">Zrušit</button>
+            </div>
+          </div>
+
           <div class="profile-sheet__actions">
-            <button class="saloon-btn saloon-btn--gold" id="profileUpgradeBtn" type="button" hidden>Uložit přes Google</button>
-            <button class="saloon-btn saloon-btn--crimson" id="profileLogoutBtn" type="button">Odhlásit se / Saloon</button>
+            <button class="saloon-btn saloon-btn--ghost profile-delete-btn" id="profileDeleteBtn" type="button">Smazat účet</button>
+            <div class="profile-sheet__actions-right">
+              <button class="saloon-btn saloon-btn--gold" id="profileUpgradeBtn" type="button" hidden>Uložit přes Google</button>
+              <button class="saloon-btn saloon-btn--crimson" id="profileLogoutBtn" type="button">Odhlásit se / Saloon</button>
+            </div>
           </div>
         </div>
       </div>

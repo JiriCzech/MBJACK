@@ -1243,49 +1243,6 @@ button:disabled {
   pointer-events: none;
 }
 
-.saloon-ambient {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-}
-
-.saloon-lantern-glow {
-  position: absolute;
-  width: 170px;
-  height: 170px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(255, 196, 86, 0.28) 0%, rgba(255, 168, 52, 0) 72%);
-  animation: lanternPulse 4.2s ease-in-out infinite;
-}
-
-.saloon-lantern-glow--left {
-  left: 158px;
-  top: 40px;
-}
-
-.saloon-lantern-glow--right {
-  left: 1200px;
-  top: 22px;
-  animation-delay: 1.6s;
-}
-
-.saloon-tumbleweed {
-  position: absolute;
-  left: -100px;
-  top: 632px;
-  width: 72px;
-  height: 72px;
-  opacity: 0.72;
-  filter: drop-shadow(0 8px 6px rgba(10, 4, 1, 0.55));
-  animation: tumbleRoll 24s linear infinite;
-}
-
-.saloon-tumbleweed svg {
-  width: 100%;
-  height: 100%;
-}
-
 /* Sheriff bubble mirrored on right pointing to the Sheriff */
 .saloon-sheriff-bubble {
   left: 718px;
@@ -1411,17 +1368,17 @@ button:disabled {
 }
 
 .saloon-avatar-grid {
-  margin-top: 7px;
+  margin-top: 8px;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 11px;
+  grid-template-columns: repeat(3, 114px);
+  justify-content: center;
+  gap: 12px;
 }
 
 .avatar-slot {
   position: relative;
-  aspect-ratio: 1 / 1;
-  width: 100%;
-  max-height: 118px;
+  width: 114px;
+  height: 114px;
   padding: 0;
   border-radius: 12px;
   border: 3px solid var(--ink);
@@ -1432,16 +1389,17 @@ button:disabled {
   align-items: center;
   justify-content: center;
   box-shadow: 0 3px 0 var(--ink);
-  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
 .avatar-slot.is-unlocked:hover {
-  transform: translateY(-2px);
+  border-color: #f6d575;
+  box-shadow: 0 0 0 2px rgba(246, 213, 117, 0.75), 0 3px 0 var(--ink);
 }
 
 .avatar-slot.is-selected {
   border-color: var(--gold);
-  box-shadow: 0 0 0 3px var(--gold), 0 4px 0 var(--ink);
+  box-shadow: 0 0 0 3px var(--gold), 0 3px 0 var(--ink);
 }
 
 .avatar-slot__img {
@@ -1467,13 +1425,11 @@ button:disabled {
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transform: scale(0.7);
-  transition: opacity 140ms ease, transform 140ms ease;
+  transition: opacity 120ms ease;
 }
 
 .avatar-slot.is-selected .avatar-slot__check {
   opacity: 1;
-  transform: scale(1);
 }
 
 .avatar-slot.is-locked {
@@ -1549,10 +1505,81 @@ button:disabled {
   padding: 1.5px;
 }
 
+.saloon-existing {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 4px;
+}
+
+.saloon-existing-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  background: rgba(255, 249, 232, 0.78);
+  border: 3px solid var(--ink);
+  border-radius: 14px;
+  box-shadow: 0 3px 0 var(--ink);
+}
+
+.saloon-existing-card__avatar {
+  width: 92px;
+  height: 92px;
+  border-radius: 12px;
+  border: 3px solid var(--ink);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.saloon-existing-card__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.saloon-existing-card__name {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 24px;
+  color: var(--ink);
+}
+
+.saloon-existing-card__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #5b3216;
+}
+
+.saloon-existing__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.saloon-continue-btn {
+  height: 50px;
+  font-size: 17px;
+  width: 100%;
+}
+
+.saloon-switch-btn {
+  height: 38px;
+  font-size: 13px;
+  width: 100%;
+}
+
 /* ======================= Profile Modal & Badges ========================= */
 
 .profile-sheet {
-  width: 520px;
+  width: 590px;
+  padding: 20px 26px;
+  max-height: 94%;
+  overflow-y: auto;
 }
 
 .profile-hero {
@@ -1692,11 +1719,87 @@ button:disabled {
   margin-top: 3px;
 }
 
-.profile-sheet__actions {
-  margin-top: 18px;
+.profile-avatar-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 2px dashed rgba(43, 26, 14, 0.25);
+}
+
+.profile-avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 78px);
+  justify-content: center;
+  gap: 9px;
+}
+
+.profile-avatar-grid .avatar-slot {
+  width: 78px;
+  height: 78px;
+  border-radius: 10px;
+}
+
+.profile-avatar-grid .avatar-lock-svg {
+  width: 34px;
+  height: 34px;
+}
+
+.profile-avatar-grid .avatar-slot__lock-tag {
+  font-size: 8.5px;
+}
+
+.delete-confirm {
+  margin-top: 12px;
+  padding: 11px 14px;
+  background: #f9dccb;
+  border: 2.5px solid var(--ink);
+  border-radius: 11px;
+  box-shadow: 0 3px 0 var(--ink);
+}
+
+.delete-confirm__text {
+  margin: 0 0 9px;
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #5b140f;
+}
+
+.delete-confirm__actions {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
+}
+
+.delete-confirm__actions .saloon-btn {
+  height: 36px;
+  font-size: 13px;
+  padding: 0 14px;
+}
+
+.profile-sheet__actions {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 10px;
+}
+
+.profile-sheet__actions .saloon-btn {
+  height: 40px;
+  padding: 0 14px;
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+
+.profile-sheet__actions-right {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.profile-delete-btn {
+  height: 40px;
+  padding: 0 13px;
+  font-size: 13px;
 }
 
 .kicked-sheet {
@@ -1774,44 +1877,6 @@ button:disabled {
 
 /* ============================== Keyframes =============================== */
 
-@keyframes lanternPulse {
-  0%,
-  100% {
-    opacity: 0.65;
-    transform: scale(0.96);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.06);
-  }
-}
-
-@keyframes tumbleRoll {
-  0% {
-    transform: translateX(0) translateY(0) rotate(0deg);
-    opacity: 0;
-  }
-  5% {
-    opacity: 0.72;
-  }
-  20% {
-    transform: translateX(300px) translateY(-10px) rotate(140deg);
-  }
-  42% {
-    transform: translateX(640px) translateY(2px) rotate(310deg);
-  }
-  65% {
-    transform: translateX(990px) translateY(-14px) rotate(500deg);
-  }
-  90% {
-    opacity: 0.72;
-  }
-  100% {
-    transform: translateX(1580px) translateY(0) rotate(760deg);
-    opacity: 0;
-  }
-}
-
 @keyframes circlePulse {
   0%,
   100% {
@@ -1880,9 +1945,7 @@ button:disabled {
   }
   .seat-hotspot.is-invite,
   .result-stamp,
-  .chip.is-new,
-  .saloon-lantern-glow,
-  .saloon-tumbleweed {
+  .chip.is-new {
     animation: none !important;
   }
 }

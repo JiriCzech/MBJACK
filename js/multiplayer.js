@@ -80,12 +80,15 @@
       this._lastNoticeId = null;
       this._processedActions = new Set();
       this._settledRounds = new Set();
+      this._participatedRounds = new Set();
 
       this._myPendingNewRound = false;
       this._myQueuedAutoRebet = false;
       this._roundReadySeats = {};
       this._autoRebetSeats = {};
       this._newRoundTimer = null;
+      this._newRoundWatchdogTimer = null;
+      this._rejoining = false;
 
       // AFK tracking
       this._turnWatchKey = "";
@@ -102,6 +105,9 @@
       this._leaving = false;
       this._joining = false;
       this._hydratedOnce = false;
+      this._readyMeta = false;
+      this._readySeats = false;
+      this._readyPres = false;
     }
 
     /* ==================== BlackjackEngine-compatible getters ==================== */
@@ -238,6 +244,50 @@
       return a;
     }
 
+    didParticipateInRound(round) {
+      return this._participatedRounds.has(round);
+    }
+
+    _isSeatOnline(seatIdx) {
+      const sd = this.seats[seatIdx];
+      if (!sd) return false;
+      if (this.offlineMode || seatIdx === this.mySeat) return true;
+      return Boolean(this.presence && this.presence[sd.uid]);
+    }
+
+    _getOnlineOccupiedSeats() {
+      return [0, 1, 2].filter((s) => this._isSeatOnline(s));
+    }
+
+    _pruneGhostSeats() {
+      if (this.offlineMode || !this.roomId || !this.fb || !this.fb.isAvailable()) return false;
+      if (!this._readyPres || !this._readySeats) return false;
+      const now = Date.now();
+      let pruned = false;
+      for (let s = 0; s < this.rules.seats; s += 1) {
+        const sd = this.seats[s];
+        if (!sd || s === this.mySeat) continue;
+        if (this.presence && this.presence[sd.uid]) continue;
+        if (now - Number(sd.joinedAt || 0) <= 4000) continue;
+        this.seats[s] = null;
+        pruned = true;
+        this.fb.db.ref(`rooms/${this.roomId}/seats/${s}`).remove().catch(() => {});
+      }
+      if (pruned) {
+        this.onSeatRender();
+        this.onStateChange();
+      }
+      return pruned;
+    }
+
+    _isValidlySeated() {
+      if (this.offlineMode) return this.mySeat >= 0;
+      if (!this.roomId || this.mySeat < 0 || !this.fb || !this.fb.isAvailable() || !this.fb.connected) return false;
+      const uid = this.fb.auth.currentUser ? this.fb.auth.currentUser.uid : null;
+      const sd = this.seats[this.mySeat];
+      return Boolean(uid && sd && sd.uid === uid && this.presence && this.presence[uid]);
+    }
+
     /* ========================== Join / Leave Room ========================== */
 
     async joinTable() {
@@ -246,6 +296,7 @@
       this._leaving = false;
       this._hydratedOnce = false;
       this._settledRounds.clear();
+      this._participatedRounds.clear();
       this._processedActions.clear();
 
       try {
@@ -317,9 +368,11 @@
       clearInterval(this._heartbeatTimer);
       clearInterval(this._watchdogTimer);
       clearTimeout(this._newRoundTimer);
+      clearTimeout(this._newRoundWatchdogTimer);
       this._heartbeatTimer = null;
       this._watchdogTimer = null;
       this._newRoundTimer = null;
+      this._newRoundWatchdogTimer = null;
 
       if (this._connUnsub) {
         this._connUnsub();
@@ -381,11 +434,11 @@
         .filter(([, room]) => {
           if (!room || !room.meta) return false;
           const updatedAt = Number(room.meta.updatedAt || 0);
-          if (now - updatedAt > ROOM_STALE_MS) return false;
+          if (now - updatedAt > 25000) return false;
           const pres = room.presence || {};
+          if (!room.meta.hostUid || !pres[room.meta.hostUid]) return false;
           const seatsObj = room.seats || {};
           const activeSeats = [0, 1, 2].filter((s) => seatsObj[s] && pres[seatsObj[s].uid]);
-          // If this same uid is already seated in a fresh room, prefer freeing or avoiding duplicates
           return activeSeats.length > 0 && activeSeats.length < this.rules.seats;
         })
         .sort((a, b) => Number(b[1].meta.updatedAt || 0) - Number(a[1].meta.updatedAt || 0));
@@ -393,15 +446,18 @@
       for (const [roomId, roomData] of candidates) {
         const currentRound = Number(roomData.game?.round || 0);
         const seatsObj = roomData.seats || {};
+        const pres = roomData.presence || {};
         // First check if our uid already occupies a seat (e.g., rapid refresh before onDisconnect fired)
         const existingSeat = [0, 1, 2].find((s) => seatsObj[s] && seatsObj[s].uid === uid);
         const preferredOrder = existingSeat != null ? [existingSeat] : [0, 1, 2];
         for (const seatIdx of preferredOrder) {
-          if (existingSeat == null && seatsObj[seatIdx]) continue;
+          const occupant = seatsObj[seatIdx];
+          const isGhost = Boolean(occupant && !pres[occupant.uid] && now - Number(occupant.joinedAt || 0) > 4000);
+          if (existingSeat == null && occupant && !isGhost) continue;
           const seatRef = db.ref(`rooms/${roomId}/seats/${seatIdx}`);
           const payload = this._buildSeatPayload(uid, profile, currentRound);
           const tx = await seatRef.transaction((curr) => {
-            if (curr && curr.uid !== uid) return; // abort: taken
+            if (curr && curr.uid !== uid && pres[curr.uid]) return; // abort: genuinely taken
             return payload;
           });
           if (tx.committed) {
@@ -441,7 +497,15 @@
       this.offlineMode = false;
       this.roomId = roomId;
       this.mySeat = seatIdx;
+      this.isHost = false;
+      this._readyMeta = Boolean(asCreator);
+      this._readySeats = Boolean(asCreator);
+      this._readyPres = Boolean(asCreator);
       this._chatJoinCutoff = Date.now() - 1500;
+      this.presence = Object.assign({}, this.presence, { [uid]: { uid, seat: seatIdx, online: true } });
+      if (!this.seats[seatIdx] && this.store.current) {
+        this.seats[seatIdx] = this._buildSeatPayload(uid, this.store.current, this.mirror.round);
+      }
       const db = this.fb.db;
       const roomRef = db.ref(`rooms/${roomId}`);
 
@@ -471,16 +535,21 @@
 
       const onMeta = (snap) => {
         this.meta = snap.val();
+        this._readyMeta = true;
         this._evaluateHostRole();
       };
       const onSeats = (snap) => {
         const val = snap.val() || {};
         const prevSeats = this.seats;
         this.seats = [val[0] || null, val[1] || null, val[2] || null];
+        this._readySeats = true;
         this._handleSeatsUpdated(prevSeats, this.seats);
+        this._evaluateHostRole();
       };
       const onPres = (snap) => {
         this.presence = snap.val() || {};
+        this._readyPres = true;
+        this._pruneGhostSeats();
         this._evaluateHostRole();
         this.onSeatRender();
       };
@@ -558,6 +627,7 @@
 
     async _evaluateHostRole() {
       if (this.offlineMode || this._leaving || !this.meta || !this.fb.auth.currentUser) return;
+      if (!this._readyMeta || !this._readySeats || !this._readyPres) return;
       const myUid = this.fb.auth.currentUser.uid;
       const hostUid = this.meta.hostUid;
 
@@ -566,6 +636,7 @@
         return;
       }
 
+      this.isHost = false;
       const hostPresent = Boolean(hostUid && this.presence[hostUid]);
       if (hostPresent) return;
 
@@ -574,14 +645,16 @@
       if (onlineSeat !== this.mySeat) return;
 
       const metaRef = this.fb.db.ref(`rooms/${this.roomId}/meta`);
-      const tx = await metaRef.transaction((curr) => {
-        if (!curr) return curr;
-        if (curr.hostUid && this.presence[curr.hostUid]) return; // someone else already took over
-        return Object.assign({}, curr, { hostUid: myUid, updatedAt: Date.now() });
-      });
-      if (tx.committed && !this.isHost) {
-        await this._becomeHost();
-      }
+      try {
+        const tx = await metaRef.transaction((curr) => {
+          if (!curr) return curr;
+          if (curr.hostUid && this.presence[curr.hostUid]) return; // someone else already took over
+          return Object.assign({}, curr, { hostUid: myUid, updatedAt: Date.now() });
+        });
+        if (tx.committed && !this.isHost) {
+          await this._becomeHost();
+        }
+      } catch (_) {}
     }
 
     async _becomeHost(prebuiltEngine) {
@@ -619,6 +692,7 @@
       this._roomListeners.push(() => actionsRef.off("child_added", onActionAdded));
 
       // Check immediately if a vanished seat stalled the current round or if betting is already ready
+      this._pruneGhostSeats();
       this._syncSeatsToHostEngine();
       this._checkMissingSeatProgress();
       this._checkBettingReadyToDeal();
@@ -635,6 +709,12 @@
         this._capturedEvents = null;
         if (batch && batch.length > 0) {
           this._syncMirrorFromHostEngine();
+          if (batch.some((e) => e.name === "round:started")) {
+            const startedHands = this.mirror.hands || [];
+            if (this.mySeat >= 0 && startedHands.some((h) => h.seat === this.mySeat)) {
+              this._participatedRounds.add(this.mirror.round);
+            }
+          }
           // Emit locally on Host's sceneBus immediately (skipping duplicate replay when RTDB echoes)
           for (const ev of batch) {
             this.bus.emit(ev.name, ev.payload);
@@ -647,6 +727,7 @@
             const engSnap = this.hostEngine.exportEngineState();
             const roomRef = this.fb.db.ref(`rooms/${this.roomId}`);
             const startedRound = batch.some((e) => e.name === "round:started");
+            const clearedRound = batch.some((e) => e.name === "round:cleared");
 
             const updates = {
               "game/seq": seq,
@@ -656,8 +737,11 @@
               engineSnapshot: engSnap,
               "meta/updatedAt": this.fb.serverTimestamp,
             };
-            if (startedRound) {
-              // Keep RTDB payload small by replacing batches when a new round deals
+            if (clearedRound) {
+              // Keep only the round:cleared batch so non-hosts sweep cards while purging old round batches & notices
+              updates["game/batches"] = { [seq]: batch };
+              updates["game/sheriffNotice"] = null;
+            } else if (startedRound) {
               updates["game/batches"] = { [seq]: batch };
             } else {
               updates[`game/batches/${seq}`] = batch;
@@ -710,9 +794,10 @@
 
     _checkRoundOverAdvance() {
       if (!this.isHost || !this.hostEngine || this.hostEngine.phase !== MBJ.PHASE.ROUND_OVER) return;
+      this._pruneGhostSeats();
       const activeRoundSeats = new Set((this.hostEngine.state.hands || []).map((h) => h.seat));
       const onlineRoundSeats = [0, 1, 2].filter(
-        (s) => activeRoundSeats.has(s) && this.seats[s] && (this.offlineMode || this.presence[this.seats[s].uid])
+        (s) => activeRoundSeats.has(s) && this._isSeatOnline(s)
       );
 
       const allClicked =
@@ -761,8 +846,9 @@
 
     _checkBettingReadyToDeal() {
       if (!this.isHost || !this.hostEngine || this.hostEngine.phase !== MBJ.PHASE.BETTING) return;
+      this._pruneGhostSeats();
       const r = this.hostEngine.state.round;
-      const occupied = [0, 1, 2].filter((s) => Boolean(this.seats[s]));
+      const occupied = this._getOnlineOccupiedSeats();
       if (occupied.length === 0) return;
 
       const allReady = occupied.every((s) => {
@@ -822,18 +908,27 @@
 
     _runWatchdog() {
       if (!this.isHost || !this.hostEngine || this.offlineMode) return;
+      this._pruneGhostSeats();
       const eng = this.hostEngine;
       const now = Date.now();
-      const occupied = [0, 1, 2].filter((s) => Boolean(this.seats[s]));
-      const multiPlayer = occupied.length >= 2;
+      const occupied = this._getOnlineOccupiedSeats();
 
-      // 1) Turn / Insurance AFK
+      // Solo play: NEVER issue AFK warnings or kick a lone player
+      if (occupied.length <= 1) {
+        this._turnWatchKey = "";
+        this._turnWarnedKey = "";
+        this._betWatchSince = 0;
+        this._betWarnedSeats.clear();
+        return;
+      }
+
+      // 1) Turn / Insurance AFK (only when 2 or 3 online players are seated)
       if (eng.phase === MBJ.PHASE.PLAYER || eng.phase === MBJ.PHASE.INSURANCE) {
         const active = eng.activeHand;
         if (!active) return;
         const seat = active.seat;
         const occupant = this.seats[seat];
-        if (!occupant) {
+        if (!occupant || !this._isSeatOnline(seat)) {
           this._checkMissingSeatProgress();
           return;
         }
@@ -851,7 +946,7 @@
         if (idle >= AFK_WARN_MS && this._turnWarnedKey !== key) {
           this._turnWarnedKey = key;
           this._publishSheriffNotice(`Hej kovboji ${occupant.firstName}, hraješ nebo u toho stolu usínáš?`, "grumpy", seat);
-        } else if (multiPlayer && idle >= AFK_KICK_MS) {
+        } else if (idle >= AFK_KICK_MS) {
           this._kickIdleSeat(seat, occupant, `${occupant.firstName} usnul nad kartami. Vyprovodil jsem ho ze stolu!`);
         }
         return;
@@ -861,8 +956,8 @@
       this._turnWatchKey = "";
       this._turnWarnedKey = "";
 
-      // 2) Betting AFK when 2+ players are seated and at least one is ready
-      if (eng.phase === MBJ.PHASE.BETTING && multiPlayer) {
+      // 2) Betting AFK when 2+ online players are seated and at least one is ready
+      if (eng.phase === MBJ.PHASE.BETTING) {
         const r = eng.state.round;
         const anyReady = occupied.some((s) => this.seats[s].ready && Number(this.seats[s].readyRound) === r);
         if (!anyReady) {
@@ -956,34 +1051,38 @@
       const snap = g.snapshot;
       if (!snap) return;
 
-      // Check Sheriff AFK / system notices
-      if (g.sheriffNotice && g.sheriffNotice.id && g.sheriffNotice.id !== this._lastNoticeId) {
-        this._lastNoticeId = g.sheriffNotice.id;
-        this.onDealerLine(g.sheriffNotice.text, g.sheriffNotice.mood);
-      }
-
-      // First join when a round is already underway -> hydrate visually without replaying old flights
+      // First join: hydrate calmly without replaying stale sheriff notices from before we arrived
       if (!this._hydratedOnce) {
         this._hydratedOnce = true;
         this._lastAppliedSeq = Number(g.seq || 0);
+        this._lastNoticeId = g.sheriffNotice && g.sheriffNotice.id ? g.sheriffNotice.id : null;
         this._applySnapshotToMirror(snap);
         if (snap.phase !== MBJ.PHASE.BETTING) {
           this.onHydrateScene(snap);
-          const me = this.seats[this.mySeat];
-          if (me) {
-            this.onDealerLine(`Vítej u stolu, ${me.firstName}! Další kolo hraješ s námi.`, "friendly");
-          }
+          this.onDealerLine("Vítej u stolu! Další kolo hraješ s námi.", "friendly");
         } else {
-          // Ensure our own seat betRound matches current round
           this._syncMySeatForNewBettingRound(snap.round);
+          this.onDealerLine("Hoď žetony do kruhu a klikni na zásobník.", "friendly");
         }
         this.onSeatRender();
         this.onStateChange();
         return;
       }
 
+      // Only show Sheriff AFK / system notices that match the current room activity
+      if (g.sheriffNotice && g.sheriffNotice.id && g.sheriffNotice.id !== this._lastNoticeId) {
+        this._lastNoticeId = g.sheriffNotice.id;
+        this.onDealerLine(g.sheriffNotice.text, g.sheriffNotice.mood);
+      }
+
       const prevPhase = this.mirror.phase;
       this._applySnapshotToMirror(snap);
+
+      if (prevPhase === MBJ.PHASE.BETTING && snap.phase !== MBJ.PHASE.BETTING) {
+        if (this.mySeat >= 0 && Array.isArray(snap.hands) && snap.hands.some((h) => h.seat === this.mySeat)) {
+          this._participatedRounds.add(snap.round);
+        }
+      }
 
       // Non-host clients replay ordered event batches
       if (!this.isHost) {
@@ -1019,6 +1118,9 @@
       // When transitioning INTO betting from roundOver (newRound), apply queued autoRebet or reset betRound
       if (prevPhase === MBJ.PHASE.ROUND_OVER && snap.phase === MBJ.PHASE.BETTING) {
         this._myPendingNewRound = false;
+        clearTimeout(this._newRoundWatchdogTimer);
+        this._newRoundWatchdogTimer = null;
+        this._pruneGhostSeats();
         this._syncMySeatForNewBettingRound(snap.round);
       }
 
@@ -1065,6 +1167,7 @@
 
     _processMyRoundOutcome(lastResult) {
       if (!lastResult || this.mySeat < 0) return;
+      if (!this._participatedRounds.has(lastResult.round)) return;
       if (this._settledRounds.has(lastResult.round)) return;
 
       const mySeatRes = Array.isArray(lastResult.seatResults)
@@ -1262,21 +1365,43 @@
       return { ok: true };
     }
 
-    deal() {
+    async deal() {
       if (!this.canDeal()) return { ok: false };
       if (this.offlineMode && this.hostEngine) {
         const res = this._executeHostAction(() => this.hostEngine.deal());
         this.onStateChange();
         return res;
       }
+
+      if (!this._isValidlySeated()) {
+        const currentBet = this.mirror.seatBets[this.mySeat] || 0;
+        await this._rejoinFreshTable(false);
+        if (currentBet > 0 && currentBet <= this.bankroll && this.mirror.phase === MBJ.PHASE.BETTING) {
+          this.placeBet(this.mySeat, currentBet);
+        }
+        return { ok: false };
+      }
+
+      this._pruneGhostSeats();
       this._updateMySeat({
         ready: true,
         readyRound: this.mirror.round,
         betRound: this.mirror.round,
         lastActiveAt: Date.now(),
       });
-      const occupiedCount = this.seats.filter(Boolean).length;
-      if (occupiedCount > 1) {
+
+      const onlineSeats = this._getOnlineOccupiedSeats();
+      if (onlineSeats.length <= 1) {
+        if (!this.isHost) {
+          await this._becomeHost();
+        }
+        this._syncSeatsToHostEngine();
+        if (this.hostEngine && this.hostEngine.canDeal()) {
+          const res = this._executeHostAction(() => this.hostEngine.deal());
+          this.onStateChange();
+          return res;
+        }
+      } else {
         this.onDealerLine("Sázka na stole! Čekáme na ostatní kovboje…", "friendly");
       }
       return { ok: true };
@@ -1341,7 +1466,31 @@
       return this._sendTurnAction("surrender");
     }
 
-    newRound(options) {
+    async _rejoinFreshTable(autoRebet) {
+      if (this._rejoining) return;
+      this._rejoining = true;
+      try {
+        const prevLastBet = this.mySeat >= 0 ? this.mirror.lastBets[this.mySeat] || 0 : 0;
+        this._myPendingNewRound = false;
+        this._myQueuedAutoRebet = false;
+        clearTimeout(this._newRoundWatchdogTimer);
+        this._newRoundWatchdogTimer = null;
+
+        await this.leaveTable();
+        this.onHydrateScene({ phase: MBJ.PHASE.BETTING, seatBets: [0, 0, 0] });
+        await this.joinTable();
+
+        if (autoRebet && prevLastBet > 0 && prevLastBet <= this.bankroll && this.mirror.phase === MBJ.PHASE.BETTING) {
+          this.placeBet(this.mySeat, prevLastBet);
+        }
+        this.onSeatRender();
+        this.onStateChange();
+      } finally {
+        this._rejoining = false;
+      }
+    }
+
+    async newRound(options) {
       if (this.mirror.phase !== MBJ.PHASE.ROUND_OVER || this._myPendingNewRound) return { ok: false };
       const autoRebet = Boolean(options && options.autoRebet);
       this._myQueuedAutoRebet = autoRebet;
@@ -1355,9 +1504,50 @@
         return res;
       }
 
+      this._pruneGhostSeats();
+
+      // If disconnected or evicted from room while idle, seamlessly re-seat at a fresh table
+      if (!this._isValidlySeated()) {
+        await this._rejoinFreshTable(autoRebet);
+        return { ok: true };
+      }
+
+      const onlineSeats = this._getOnlineOccupiedSeats();
+      if (onlineSeats.length <= 1) {
+        if (!this.isHost) {
+          await this._becomeHost();
+        }
+        if (this.hostEngine && this.hostEngine.phase === MBJ.PHASE.ROUND_OVER) {
+          const res = this._executeHostAction(() => this.hostEngine.newRound());
+          if (res.ok) {
+            this._syncMySeatForNewBettingRound(this.mirror.round);
+          }
+          this.onStateChange();
+          return res;
+        }
+      }
+
       this._myPendingNewRound = true;
       this.onStateChange();
-      return this._sendTurnAction("newRound", { autoRebet });
+      this._sendTurnAction("newRound", { autoRebet });
+
+      clearTimeout(this._newRoundWatchdogTimer);
+      this._newRoundWatchdogTimer = setTimeout(async () => {
+        if (!this._myPendingNewRound || this._leaving) return;
+        this._pruneGhostSeats();
+        await this._evaluateHostRole();
+        if (this.isHost && this.hostEngine && this.hostEngine.phase === MBJ.PHASE.ROUND_OVER) {
+          this._checkRoundOverAdvance();
+          if (this._getOnlineOccupiedSeats().length <= 1 && this.hostEngine.phase === MBJ.PHASE.ROUND_OVER) {
+            this._executeHostAction(() => this.hostEngine.newRound());
+            this._syncMySeatForNewBettingRound(this.mirror.round);
+          }
+        } else if (!this._isValidlySeated() || this.mirror.phase === MBJ.PHASE.ROUND_OVER) {
+          await this._rejoinFreshTable(this._myQueuedAutoRebet);
+        }
+      }, 3500);
+
+      return { ok: true };
     }
 
     sendChatMessage(rawText) {
@@ -1386,7 +1576,7 @@
     }
 
     getSeatCount() {
-      return this.seats.filter(Boolean).length;
+      return this._getOnlineOccupiedSeats().length;
     }
 
     syncProfileIdentity(profile) {

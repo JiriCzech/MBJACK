@@ -392,7 +392,7 @@
         plate.classList.toggle("is-ready", isReady);
 
         if (avatarEl) {
-          const av = MBJ.AVATARS.find((a) => a.id === Number(data.avatarId) && a.unlocked) || MBJ.AVATARS[0];
+          const av = MBJ.AVATARS.find((a) => a.id === Number(data.avatarId) && a.src) || MBJ.AVATARS[0];
           avatarEl.src = av.src;
           avatarEl.hidden = false;
         }
