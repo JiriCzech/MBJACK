@@ -292,6 +292,14 @@
 
         e.on("round:started", ({ hands }) => {
           this._enqueue(async () => {
+            for (const c of this.dealer.cards) c.destroy();
+            for (const h of this.hands.values()) {
+              for (const c of h.cards) c.destroy();
+              if (h.badgeEl) h.badgeEl.remove();
+              if (h.resultEl) h.resultEl.remove();
+              if (h.insuranceStack) h.insuranceStack.destroy();
+              if (h.stack && !this.seatStacks.includes(h.stack)) h.stack.destroy();
+            }
             this.hands.clear();
             this.dealer.cards = [];
             this._setBadge(this.dealer.badgeEl, "");
@@ -343,7 +351,15 @@
         e.on("insurance:offered", ({ handId, cost }) => {
           this._enqueue(async () => {
             this._setActiveHandHighlight(handId);
-            this.onDealerLine(`Ukazuji eso. Chceš pojištění za ${U.formatMoney(cost)}?`, "neutral");
+            const hand = this.hands.get(handId);
+            const mySeat = Number.isInteger(this.engine.mySeat) ? this.engine.mySeat : -1;
+            if (mySeat >= 0 && hand && hand.seat !== mySeat && this.engine.seats) {
+              const owner = this.engine.seats[hand.seat];
+              const who = owner ? owner.firstName : `P${hand.seat + 1}`;
+              this.onDealerLine(`Ukazuji eso. ${who} zvažuje pojištění…`, "neutral");
+            } else {
+              this.onDealerLine(`Ukazuji eso. Chceš pojištění za ${U.formatMoney(cost)}?`, "neutral");
+            }
           });
         }),
 
@@ -395,7 +411,14 @@
             if (!splitDraw && handId) {
               const hand = this.hands.get(handId);
               if (hand && this.engine.phase === MBJ.PHASE.PLAYER) {
-                this.onDealerLine("Tvůj tah. Líznout, nebo stát?", "neutral");
+                const mySeat = Number.isInteger(this.engine.mySeat) ? this.engine.mySeat : -1;
+                if (mySeat >= 0 && hand.seat !== mySeat && this.engine.seats) {
+                  const owner = this.engine.seats[hand.seat];
+                  const who = owner ? `${owner.firstName} ${owner.lastName}`.trim() : `P${hand.seat + 1}`;
+                  this.onDealerLine(`Na tahu je ${who}.`, "neutral");
+                } else {
+                  this.onDealerLine("Tvůj tah. Líznout, nebo stát?", "neutral");
+                }
               }
             }
           });
@@ -685,11 +708,21 @@
 
       if (anyWin && this.audio) this.audio.win(anyBJ);
 
+      const mySeat = Number.isInteger(this.engine.mySeat) ? this.engine.mySeat : -1;
+      const myRes =
+        mySeat >= 0 && Array.isArray(res.seatResults)
+          ? res.seatResults.find((sr) => sr.seat === mySeat)
+          : null;
+      const shownNet = myRes && myRes.results && myRes.results.length > 0 ? myRes.net : res.net;
+      const participated = !myRes || (myRes.results && myRes.results.length > 0);
+
       if (res.dealerBlackjack) {
         this.onDealerLine("Blackjack krupiéra! Bohužel, kovboji.", "grumpy");
-      } else if (res.net > 0) {
-        this.onDealerLine(`Pěkná ruka! Bereš ${U.formatMoney(res.net)} čistého.`, "impressed");
-      } else if (res.net === 0) {
+      } else if (!participated) {
+        this.onDealerLine("Kolo skončilo. V příštím kole už hraješ s námi!", "friendly");
+      } else if (shownNet > 0) {
+        this.onDealerLine(`Pěkná ruka! Bereš ${U.formatMoney(shownNet)} čistého.`, "impressed");
+      } else if (shownNet === 0) {
         this.onDealerLine("Remíza. Sázky se vracejí zpět.", "neutral");
       } else if (!res.dealerBust) {
         this.onDealerLine("Dnes bere saloon. Zkus další kolo!", "grumpy");
@@ -744,6 +777,144 @@
       });
       await Promise.all(sweeps);
       this.onDealerLine("Hoď žetony do kruhu a klikni na zásobník.", "friendly");
+    }
+
+    /** Instantaneously synchronize visual table with a live snapshot (e.g., mid-round join). */
+    hydrateFromSnapshot(snapshot) {
+      if (!snapshot) return;
+      this.animator.cancelAll();
+      this._queue = [];
+      this._draining = false;
+
+      for (const c of this.dealer.cards) c.destroy();
+      for (const h of this.hands.values()) {
+        for (const c of h.cards) c.destroy();
+        if (h.badgeEl) h.badgeEl.remove();
+        if (h.resultEl) h.resultEl.remove();
+        if (h.insuranceStack) h.insuranceStack.destroy();
+        if (h.stack && !this.seatStacks.includes(h.stack)) h.stack.destroy();
+      }
+      this.hands.clear();
+      this.dealer.cards = [];
+      this._setBadge(this.dealer.badgeEl, "");
+      this._setActiveHandHighlight(null);
+
+      if (snapshot.shoe && Number.isFinite(snapshot.shoe.remaining)) {
+        this._shoeCards = snapshot.shoe.remaining;
+        this._updateShoeLabel();
+      }
+
+      for (let i = 0; i < this.seatStacks.length; i += 1) {
+        const stack = this.seatStacks[i];
+        const s = SEATS[i];
+        stack.setPose({ x: s.x, y: s.y + 4, rotation: 0, scale: i === 1 ? 0.96 : 0.88, opacity: 1, z: 90 + i });
+        stack.setAmount((snapshot.seatBets && snapshot.seatBets[i]) || 0);
+      }
+
+      if (snapshot.phase === MBJ.PHASE.BETTING || !Array.isArray(snapshot.hands) || snapshot.hands.length === 0) {
+        this.onStateSynced();
+        return;
+      }
+
+      // Render dealer cards
+      const dCards = (snapshot.dealer && snapshot.dealer.cards) || [];
+      const dTotal = dCards.length;
+      const visibleDealer = [];
+      dCards.forEach((card, i) => {
+        const pose = this._dealerCardPose(i, dTotal);
+        const sprite = new MBJ.CardSprite("hyd-d-" + i, pose);
+        if (card) {
+          sprite.setCard(card);
+          sprite.setFaceUp(true);
+          visibleDealer.push(card);
+        }
+        this.el.cardLayer.appendChild(sprite.el);
+        this.dealer.cards.push(sprite);
+      });
+      if (visibleDealer.length > 0) {
+        const ev = MBJ.Hand.evaluate(visibleDealer);
+        this._setBadge(
+          this.dealer.badgeEl,
+          ev.bust ? `TROP (${ev.total})` : MBJ.Hand.label(visibleDealer),
+          { x: DEALER.x, y: DEALER.y + 52 },
+          ev.bust ? "bust" : "dealer"
+        );
+      }
+
+      // Group hands by seat to preserve split positions
+      const handsBySeat = new Map();
+      for (const h of snapshot.hands) {
+        if (!handsBySeat.has(h.seat)) handsBySeat.set(h.seat, []);
+        handsBySeat.get(h.seat).push(h);
+      }
+
+      for (const h of snapshot.hands) {
+        const seatGroup = handsBySeat.get(h.seat) || [h];
+        const splitIndex = seatGroup.indexOf(h);
+        const splitCount = seatGroup.length;
+        const badgeEl = this._makeBadge("hand-badge");
+        this.el.overlayLayer.appendChild(badgeEl);
+
+        let stack = null;
+        if (splitIndex === 0) {
+          stack = this.seatStacks[h.seat];
+          if (stack) stack.setAmount(h.bet || 0);
+        } else {
+          stack = new MBJ.ChipStack({ x: SEATS[h.seat].x, y: SEATS[h.seat].y, rotation: 0, scale: 0.72, opacity: 1, z: 96 });
+          this.el.chipLayer.appendChild(stack.el);
+          stack.setAmount(h.bet || 0);
+        }
+
+        const viewHand = {
+          id: h.id,
+          seat: h.seat,
+          cards: [],
+          badgeEl,
+          resultEl: null,
+          stack,
+          insuranceStack: null,
+          splitIndex,
+          splitCount,
+          bet: h.bet,
+          doubled: Boolean(h.doubled),
+        };
+        if (splitCount > 1 && stack) {
+          const sp = this._splitStackPos(viewHand);
+          stack.setPose({ x: sp.x, y: sp.y, scale: sp.scale });
+        }
+
+        const cList = h.cards || [];
+        cList.forEach((card, idx) => {
+          const sprite = new MBJ.CardSprite(`hyd-${h.id}-${idx}`, this._playerCardPose(viewHand, idx, cList.length));
+          if (card) {
+            sprite.setCard(card);
+            sprite.setFaceUp(true);
+          }
+          if (h.status === "bust" || h.status === "surrender") sprite.el.classList.add("is-muted");
+          this.el.cardLayer.appendChild(sprite.el);
+          viewHand.cards.push(sprite);
+        });
+
+        const ev = MBJ.Hand.evaluate(cList);
+        const isBJ = ev.natural && !h.fromSplit;
+        const tone = ev.bust ? "bust" : isBJ ? "blackjack" : h.doubled ? "doubled" : "";
+        const label = isBJ ? "BLACKJACK" : h.fromSplit && ev.natural ? "21" : MBJ.Hand.label(cList);
+        this._setBadge(badgeEl, (h.doubled ? "2× · " : "") + (ev.bust ? "TROP" : label), this._badgePos(viewHand), tone);
+
+        if (snapshot.phase === MBJ.PHASE.ROUND_OVER && h.result) {
+          const meta = RESULT_META[h.result] || RESULT_META.lose;
+          const stake = h.bet + (h.insurance || 0);
+          const net = (h.payout || 0) + (h.insurancePayout || 0) - stake;
+          const stamp = this._makeStamp(meta, net, this._stampPos(viewHand));
+          this.el.overlayLayer.appendChild(stamp);
+          viewHand.resultEl = stamp;
+        }
+
+        this.hands.set(h.id, viewHand);
+      }
+
+      this._setActiveHandHighlight(snapshot.activeHandId);
+      this.onStateSynced();
     }
   }
 

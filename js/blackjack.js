@@ -43,12 +43,22 @@
         penetration: this.rules.penetration,
         random: opts.random,
       });
+      const seatBankrolls = Array.isArray(opts.seatBankrolls)
+        ? opts.seatBankrolls.slice(0, this.rules.seats).map((b) => Math.max(0, Math.round(b || 0)))
+        : null;
+      const initialBankroll = seatBankrolls
+        ? seatBankrolls.reduce((sum, b) => sum + b, 0)
+        : Number.isFinite(opts.bankroll)
+          ? Math.max(0, Math.round(opts.bankroll))
+          : this.rules.startingBankroll;
+
       this._busy = false;
       this._handSerial = 0;
       this.state = {
         phase: PHASE.BETTING,
         round: 0,
-        bankroll: Number.isFinite(opts.bankroll) ? Math.max(0, Math.round(opts.bankroll)) : this.rules.startingBankroll,
+        bankroll: initialBankroll,
+        seatBankrolls,
         seatBets: new Array(this.rules.seats).fill(0),
         lastBets: new Array(this.rules.seats).fill(0),
         hands: [],
@@ -72,6 +82,35 @@
       return this.state.bankroll;
     }
 
+    bankrollForSeat(seat) {
+      const s = this.state;
+      if (s.seatBankrolls && Number.isInteger(seat) && seat >= 0 && seat < s.seatBankrolls.length) {
+        return s.seatBankrolls[seat];
+      }
+      return s.bankroll;
+    }
+
+    setSeatBankroll(seat, amount) {
+      return this._run("setSeatBankroll", () => {
+        const s = this.state;
+        if (!s.seatBankrolls) return this._reject("setSeatBankroll", "single-bankroll");
+        if (!Number.isInteger(seat) || seat < 0 || seat >= this.rules.seats) return this._reject("setSeatBankroll", "bad-seat");
+        s.seatBankrolls[seat] = Math.max(0, Math.round(amount || 0));
+        s.bankroll = s.seatBankrolls.reduce((sum, b) => sum + b, 0);
+        return { ok: true, bankroll: s.seatBankrolls[seat] };
+      });
+    }
+
+    _addBankroll(seat, delta) {
+      const s = this.state;
+      if (s.seatBankrolls) {
+        s.seatBankrolls[seat] = Math.max(0, Math.round((s.seatBankrolls[seat] || 0) + delta));
+        s.bankroll = s.seatBankrolls.reduce((sum, b) => sum + b, 0);
+      } else {
+        s.bankroll += delta;
+      }
+    }
+
     get activeHand() {
       const s = this.state;
       return s.activeIndex >= 0 ? s.hands[s.activeIndex] || null : null;
@@ -89,11 +128,15 @@
       return s.hands.reduce((sum, hand) => sum + hand.bet + hand.insurance, 0);
     }
 
-    isBroke() {
+    isBroke(seat) {
+      const s = this.state;
+      if (s.seatBankrolls && Number.isInteger(seat)) {
+        return s.phase === PHASE.BETTING && (s.seatBets[seat] || 0) === 0 && this.bankrollForSeat(seat) < this.rules.minBet;
+      }
       return (
-        this.state.phase === PHASE.BETTING &&
+        s.phase === PHASE.BETTING &&
         this.totalSeatBets() === 0 &&
-        this.state.bankroll < this.rules.minBet
+        s.bankroll < this.rules.minBet
       );
     }
 
@@ -102,7 +145,7 @@
       if (s.phase !== PHASE.BETTING) return { ok: false, reason: "not-betting" };
       if (!Number.isInteger(seat) || seat < 0 || seat >= this.rules.seats) return { ok: false, reason: "bad-seat" };
       if (!Number.isInteger(amount) || amount <= 0) return { ok: false, reason: "bad-amount" };
-      if (amount > s.bankroll) return { ok: false, reason: "insufficient-funds" };
+      if (amount > this.bankrollForSeat(seat)) return { ok: false, reason: "insufficient-funds" };
       if (s.seatBets[seat] + amount > this.rules.maxBet) return { ok: false, reason: "max-bet" };
       return { ok: true };
     }
@@ -116,8 +159,12 @@
       );
     }
 
-    canRebet() {
+    canRebet(seat) {
       const s = this.state;
+      if (s.seatBankrolls && Number.isInteger(seat)) {
+        const last = s.lastBets[seat] || 0;
+        return s.phase === PHASE.BETTING && last > 0 && last <= this.bankrollForSeat(seat) + (s.seatBets[seat] || 0);
+      }
       const total = s.lastBets.reduce((sum, bet) => sum + bet, 0);
       return s.phase === PHASE.BETTING && total > 0 && total <= s.bankroll + this.totalSeatBets();
     }
@@ -127,7 +174,7 @@
       if (!hand || hand.status !== "playing" || hand.cards.length !== 2) return false;
       if (hand.splitAces) return false;
       if (hand.fromSplit && !r.doubleAfterSplit) return false;
-      if (this.state.bankroll < hand.bet) return false;
+      if (this.bankrollForSeat(hand.seat) < hand.bet) return false;
       if (!r.doubleOnAnyTwo) {
         const ev = H.evaluate(hand.cards);
         if (ev.soft || ev.total < 9 || ev.total > 11) return false;
@@ -139,7 +186,7 @@
       const r = this.rules;
       if (!hand || hand.status !== "playing" || hand.cards.length !== 2) return false;
       if (!H.isPair(hand.cards, r.splitByValue)) return false;
-      if (this.state.bankroll < hand.bet) return false;
+      if (this.bankrollForSeat(hand.seat) < hand.bet) return false;
       const seatHands = this.state.hands.filter((h) => h.seat === hand.seat).length;
       if (seatHands >= r.maxHandsPerSeat) return false;
       if (hand.splitAces && !r.resplitAces) return false;
@@ -153,16 +200,17 @@
       return true;
     }
 
-    /** Everything the UI is allowed to offer right now. */
-    getAvailableActions() {
+    /** Everything the UI is allowed to offer right now (optionally scoped to `forSeat`). */
+    getAvailableActions(forSeat) {
       const s = this.state;
       const hand = this.activeHand;
+      const scoped = Number.isInteger(forSeat);
       const a = {
         bet: s.phase === PHASE.BETTING,
-        clearBets: s.phase === PHASE.BETTING && this.totalSeatBets() > 0,
-        rebet: this.canRebet() && this.totalSeatBets() === 0,
+        clearBets: s.phase === PHASE.BETTING && (scoped ? (s.seatBets[forSeat] || 0) > 0 : this.totalSeatBets() > 0),
+        rebet: (scoped ? this.canRebet(forSeat) && (s.seatBets[forSeat] || 0) === 0 : this.canRebet() && this.totalSeatBets() === 0),
         deal: this.canDeal(),
-        rebuy: this.isBroke(),
+        rebuy: scoped ? this.isBroke(forSeat) : this.isBroke(),
         insurance: false,
         hit: false,
         stand: false,
@@ -171,11 +219,12 @@
         surrender: false,
         newRound: s.phase === PHASE.ROUND_OVER,
       };
-      if (s.phase === PHASE.INSURANCE && hand) {
+      const isMyHand = !scoped || (hand && hand.seat === forSeat);
+      if (s.phase === PHASE.INSURANCE && hand && isMyHand) {
         a.insurance = true;
-        a.insuranceAffordable = s.bankroll >= this._insuranceCost(hand);
+        a.insuranceAffordable = this.bankrollForSeat(hand.seat) >= this._insuranceCost(hand);
       }
-      if (s.phase === PHASE.PLAYER && hand && hand.status === "playing") {
+      if (s.phase === PHASE.PLAYER && hand && hand.status === "playing" && isMyHand) {
         const lockedAces = hand.splitAces && this.rules.splitAcesOneCard;
         a.hit = !lockedAces;
         a.stand = true;
@@ -194,6 +243,7 @@
           phase: s.phase,
           round: s.round,
           bankroll: s.bankroll,
+          seatBankrolls: s.seatBankrolls,
           seatBets: s.seatBets,
           lastBets: s.lastBets,
           activeIndex: s.activeIndex,
@@ -207,6 +257,47 @@
           lastResult: s.lastResult,
         })
       );
+    }
+
+    exportEngineState() {
+      const s = this.state;
+      return JSON.parse(
+        JSON.stringify({
+          handSerial: this._handSerial,
+          state: {
+            phase: s.phase,
+            round: s.round,
+            bankroll: s.bankroll,
+            seatBankrolls: s.seatBankrolls,
+            seatBets: s.seatBets,
+            lastBets: s.lastBets,
+            hands: s.hands,
+            activeIndex: s.activeIndex,
+            dealer: s.dealer,
+            lastResult: s.lastResult,
+          },
+          shoe: this.shoe.exportState(),
+        })
+      );
+    }
+
+    importEngineState(snap) {
+      if (!snap || !snap.state) return;
+      this._handSerial = snap.handSerial || 0;
+      const st = snap.state;
+      this.state = {
+        phase: st.phase || PHASE.BETTING,
+        round: st.round || 0,
+        bankroll: st.bankroll || 0,
+        seatBankrolls: Array.isArray(st.seatBankrolls) ? st.seatBankrolls.slice() : null,
+        seatBets: Array.isArray(st.seatBets) ? st.seatBets.slice() : new Array(this.rules.seats).fill(0),
+        lastBets: Array.isArray(st.lastBets) ? st.lastBets.slice() : new Array(this.rules.seats).fill(0),
+        hands: Array.isArray(st.hands) ? JSON.parse(JSON.stringify(st.hands)) : [],
+        activeIndex: Number.isInteger(st.activeIndex) ? st.activeIndex : -1,
+        dealer: st.dealer ? JSON.parse(JSON.stringify(st.dealer)) : { cards: [], holeRevealed: false },
+        lastResult: st.lastResult ? JSON.parse(JSON.stringify(st.lastResult)) : null,
+      };
+      if (snap.shoe) this.shoe.importState(snap.shoe);
     }
 
     /* ============================ internals ============================ */
@@ -299,9 +390,15 @@
         const check = this.canBet(seat, amount);
         if (!check.ok) return this._reject("bet", check.reason);
         const s = this.state;
-        s.bankroll -= amount;
+        this._addBankroll(seat, -amount);
         s.seatBets[seat] += amount;
-        this._emit("bet:changed", { seat, bet: s.seatBets[seat], delta: amount, bankroll: s.bankroll });
+        this._emit("bet:changed", {
+          seat,
+          bet: s.seatBets[seat],
+          delta: amount,
+          bankroll: this.bankrollForSeat(seat),
+          seatBankrolls: s.seatBankrolls ? s.seatBankrolls.slice() : null,
+        });
         return { ok: true, bet: s.seatBets[seat] };
       });
     }
@@ -316,50 +413,84 @@
         if (current <= 0) return this._reject("removeBet", "no-bet");
         const take = Number.isInteger(amount) && amount > 0 ? Math.min(amount, current) : current;
         s.seatBets[seat] -= take;
-        s.bankroll += take;
-        this._emit("bet:changed", { seat, bet: s.seatBets[seat], delta: -take, bankroll: s.bankroll });
+        this._addBankroll(seat, take);
+        this._emit("bet:changed", {
+          seat,
+          bet: s.seatBets[seat],
+          delta: -take,
+          bankroll: this.bankrollForSeat(seat),
+          seatBankrolls: s.seatBankrolls ? s.seatBankrolls.slice() : null,
+        });
         return { ok: true, bet: s.seatBets[seat] };
       });
     }
 
-    clearBets() {
+    clearBets(onlySeat) {
       return this._run("clearBets", () => {
         const s = this.state;
         if (s.phase !== PHASE.BETTING) return this._reject("clearBets", "not-betting");
+        const scoped = Number.isInteger(onlySeat);
         for (let seat = 0; seat < s.seatBets.length; seat += 1) {
+          if (scoped && seat !== onlySeat) continue;
           const bet = s.seatBets[seat];
           if (!bet) continue;
           s.seatBets[seat] = 0;
-          s.bankroll += bet;
-          this._emit("bet:changed", { seat, bet: 0, delta: -bet, bankroll: s.bankroll });
+          this._addBankroll(seat, bet);
+          this._emit("bet:changed", {
+            seat,
+            bet: 0,
+            delta: -bet,
+            bankroll: this.bankrollForSeat(seat),
+            seatBankrolls: s.seatBankrolls ? s.seatBankrolls.slice() : null,
+          });
         }
         return { ok: true };
       });
     }
 
     /** Repeat the previous round's bets on the same seats. */
-    rebet() {
+    rebet(onlySeat) {
       return this._run("rebet", () => {
         const s = this.state;
-        if (!this.canRebet()) return this._reject("rebet", "cannot-rebet");
+        const scoped = Number.isInteger(onlySeat);
+        if (!this.canRebet(scoped ? onlySeat : undefined)) return this._reject("rebet", "cannot-rebet");
         for (let seat = 0; seat < s.seatBets.length; seat += 1) {
+          if (scoped && seat !== onlySeat) continue;
           const target = s.lastBets[seat];
           const delta = target - s.seatBets[seat];
           if (delta === 0) continue;
           s.seatBets[seat] = target;
-          s.bankroll -= delta;
-          this._emit("bet:changed", { seat, bet: target, delta, bankroll: s.bankroll });
+          this._addBankroll(seat, -delta);
+          this._emit("bet:changed", {
+            seat,
+            bet: target,
+            delta,
+            bankroll: this.bankrollForSeat(seat),
+            seatBankrolls: s.seatBankrolls ? s.seatBankrolls.slice() : null,
+          });
         }
         return { ok: true };
       });
     }
 
     /** Fresh bankroll for a player who has run out of chips. */
-    rebuy() {
+    rebuy(seat) {
       return this._run("rebuy", () => {
+        const s = this.state;
+        if (s.seatBankrolls && Number.isInteger(seat)) {
+          if (!this.isBroke(seat)) return this._reject("rebuy", "not-broke");
+          s.seatBankrolls[seat] = this.rules.startingBankroll;
+          s.bankroll = s.seatBankrolls.reduce((sum, b) => sum + b, 0);
+          this._emit("bankroll:rebuy", {
+            seat,
+            bankroll: s.seatBankrolls[seat],
+            seatBankrolls: s.seatBankrolls.slice(),
+          });
+          return { ok: true };
+        }
         if (!this.isBroke()) return this._reject("rebuy", "not-broke");
-        this.state.bankroll = this.rules.startingBankroll;
-        this._emit("bankroll:rebuy", { bankroll: this.state.bankroll });
+        s.bankroll = this.rules.startingBankroll;
+        this._emit("bankroll:rebuy", { bankroll: s.bankroll });
         return { ok: true };
       });
     }
@@ -393,6 +524,7 @@
           round: s.round,
           hands: s.hands.map((h) => ({ id: h.id, seat: h.seat, bet: h.bet })),
           bankroll: s.bankroll,
+          seatBankrolls: s.seatBankrolls ? s.seatBankrolls.slice() : null,
         });
 
         // Two passes, left to right, dealer last; dealer's second card face down.
@@ -440,11 +572,17 @@
         if (!hand) return this._reject("insurance", "no-hand");
         if (take) {
           const cost = this._insuranceCost(hand);
-          if (cost <= 0 || s.bankroll < cost) return this._reject("insurance", "insufficient-funds");
-          s.bankroll -= cost;
+          if (cost <= 0 || this.bankrollForSeat(hand.seat) < cost) return this._reject("insurance", "insufficient-funds");
+          this._addBankroll(hand.seat, -cost);
           hand.insurance = cost;
         }
-        this._emit("insurance:decided", { handId: hand.id, seat: hand.seat, amount: hand.insurance, bankroll: s.bankroll });
+        this._emit("insurance:decided", {
+          handId: hand.id,
+          seat: hand.seat,
+          amount: hand.insurance,
+          bankroll: this.bankrollForSeat(hand.seat),
+          seatBankrolls: s.seatBankrolls ? s.seatBankrolls.slice() : null,
+        });
 
         if (s.activeIndex < s.hands.length - 1) {
           s.activeIndex += 1;
@@ -573,11 +711,18 @@
         if (error) return error;
         if (!this._canDouble(hand)) return this._reject("double", "not-allowed");
         const s = this.state;
-        s.bankroll -= hand.bet;
+        this._addBankroll(hand.seat, -hand.bet);
         const extra = hand.bet;
         hand.bet *= 2;
         hand.doubled = true;
-        this._emit("hand:doubled", { handId: hand.id, seat: hand.seat, extra, bet: hand.bet, bankroll: s.bankroll });
+        this._emit("hand:doubled", {
+          handId: hand.id,
+          seat: hand.seat,
+          extra,
+          bet: hand.bet,
+          bankroll: this.bankrollForSeat(hand.seat),
+          seatBankrolls: s.seatBankrolls ? s.seatBankrolls.slice() : null,
+        });
         this._dealToHand(hand);
         const ev = H.evaluate(hand.cards);
         if (ev.bust) {
@@ -605,7 +750,7 @@
         sibling.splitAces = aces;
         hand.fromSplit = true;
         hand.splitAces = aces;
-        s.bankroll -= hand.bet;
+        this._addBankroll(hand.seat, -hand.bet);
         const index = s.activeIndex;
         s.hands.splice(index + 1, 0, sibling);
         this._emit("hand:split", {
@@ -614,7 +759,8 @@
           seat: hand.seat,
           movedCard: moved,
           bet: sibling.bet,
-          bankroll: s.bankroll,
+          bankroll: this.bankrollForSeat(hand.seat),
+          seatBankrolls: s.seatBankrolls ? s.seatBankrolls.slice() : null,
           seatHandIds: s.hands.filter((h) => h.seat === hand.seat).map((h) => h.id),
           summary: this._handSummary(hand),
           newSummary: this._handSummary(sibling),
@@ -689,6 +835,15 @@
       let totalStake = 0;
       const results = [];
 
+      const seatTotals = Array.from({ length: r.seats }, (_, seat) => ({
+        seat,
+        stake: 0,
+        returned: 0,
+        net: 0,
+        bankroll: this.bankrollForSeat(seat),
+        results: [],
+      }));
+
       for (const hand of s.hands) {
         const ev = H.evaluate(hand.cards);
         const natural = ev.natural && !hand.fromSplit;
@@ -725,22 +880,40 @@
         hand.payout = payout;
         hand.insurancePayout = insurancePayout;
         const stake = hand.bet + hand.insurance;
+        const returned = payout + insurancePayout;
         totalStake += stake;
-        totalReturn += payout + insurancePayout;
-        results.push({
+        totalReturn += returned;
+        if (s.seatBankrolls) {
+          this._addBankroll(hand.seat, returned);
+        }
+        const entry = {
           handId: hand.id,
           seat: hand.seat,
           result,
+          naturalBlackjack: natural,
           bet: hand.bet,
           payout,
           insurance: hand.insurance,
           insurancePayout,
-          net: payout + insurancePayout - stake,
+          net: returned - stake,
           total: ev.total,
-        });
+        };
+        results.push(entry);
+        const st = seatTotals[hand.seat];
+        if (st) {
+          st.stake += stake;
+          st.returned += returned;
+          st.net += returned - stake;
+          st.results.push(entry);
+        }
       }
 
-      s.bankroll += totalReturn;
+      if (!s.seatBankrolls) {
+        s.bankroll += totalReturn;
+      }
+      for (const st of seatTotals) {
+        st.bankroll = this.bankrollForSeat(st.seat);
+      }
       s.activeIndex = -1;
       s.lastResult = {
         round: s.round,
@@ -748,8 +921,10 @@
         dealerBust: dealer.bust,
         dealerBlackjack: dealerBJ,
         results,
+        seatResults: seatTotals,
         net: totalReturn - totalStake,
         bankroll: s.bankroll,
+        seatBankrolls: s.seatBankrolls ? s.seatBankrolls.slice() : null,
       };
       this._setPhase(PHASE.ROUND_OVER);
       this._emit("round:settled", s.lastResult);

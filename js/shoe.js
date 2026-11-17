@@ -77,6 +77,36 @@
     discard(cards) {
       for (const card of cards) this.discards.push(card);
     }
+
+    exportState() {
+      return {
+        decks: this.decks,
+        penetration: this.penetration,
+        cards: this.cards.map((c) => ({ id: c.id, rank: c.rank, suit: c.suit })),
+        discards: this.discards.map((c) => ({ id: c.id, rank: c.rank, suit: c.suit })),
+        cutIndex: this.cutIndex,
+        dealt: this.dealt,
+        shuffles: this.shuffles,
+        serial: this._serial,
+        reshuffledMidRound: Boolean(this.reshuffledMidRound),
+      };
+    }
+
+    importState(st) {
+      if (!st || !Array.isArray(st.cards)) return;
+      this.decks = st.decks || this.decks;
+      this.penetration = st.penetration || this.penetration;
+      this.cards = st.cards.map((c) => Object.freeze({ id: c.id, rank: c.rank, suit: c.suit }));
+      this.discards = Array.isArray(st.discards)
+        ? st.discards.map((c) => Object.freeze({ id: c.id, rank: c.rank, suit: c.suit }))
+        : [];
+      this.total = this.decks * 52;
+      this.cutIndex = Number.isFinite(st.cutIndex) ? st.cutIndex : Math.floor(this.total * this.penetration);
+      this.dealt = st.dealt || 0;
+      this.shuffles = st.shuffles || 1;
+      this._serial = st.serial || this._serial;
+      this.reshuffledMidRound = Boolean(st.reshuffledMidRound);
+    }
   }
 
   MBJ.SUITS = SUITS;

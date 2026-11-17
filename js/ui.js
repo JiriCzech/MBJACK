@@ -25,6 +25,9 @@
       this.chipButtons = [];
       this.seatHotspots = [];
       this.seatBetsEl = [];
+      this.seatPlates = [];
+      this.chatBubbles = [];
+      this._chatTimers = [null, null, null];
       this._bubbleTimer = null;
       this._onKeyDown = this._onKeyDown.bind(this);
     }
@@ -40,6 +43,7 @@
     destroy() {
       global.removeEventListener("keydown", this._onKeyDown);
       clearTimeout(this._bubbleTimer);
+      for (const t of this._chatTimers) clearTimeout(t);
     }
 
     /* ============================== setup ============================== */
@@ -65,21 +69,25 @@
       // Unlock Web Audio on first user gesture anywhere on the table.
       this.el.stage.addEventListener("pointerdown", () => this._unlockAudio(), { passive: true });
 
-      // 3 gold betting circles
+      // 3 gold betting circles & player nameplates
       this.seatHotspots = Array.from(this.el.stage.querySelectorAll(".seat-hotspot"));
       this.seatBetsEl = Array.from(this.el.stage.querySelectorAll(".seat-bet-pill"));
+      this.seatPlates = Array.from(this.el.stage.querySelectorAll(".seat-plate"));
+      this.chatBubbles = Array.from(this.el.stage.querySelectorAll(".player-chat-bubble"));
 
       this.seatHotspots.forEach((btn) => {
         const seat = Number(btn.dataset.seat);
         btn.addEventListener("click", () => {
           this._unlockAudio();
           if (this.scene.isBusy || this.engine.phase !== MBJ.PHASE.BETTING) return;
+          if (!this._isMySeat(seat)) return;
           this._placeSelectedOn(seat);
         });
         btn.addEventListener("contextmenu", (event) => {
           event.preventDefault();
           this._unlockAudio();
           if (this.scene.isBusy || this.engine.phase !== MBJ.PHASE.BETTING) return;
+          if (!this._isMySeat(seat)) return;
           this.engine.removeBet(seat);
         });
       });
@@ -92,10 +100,39 @@
             event.stopPropagation();
             this._unlockAudio();
             if (this.scene.isBusy || this.engine.phase !== MBJ.PHASE.BETTING) return;
+            if (!this._isMySeat(seat)) return;
             this.engine.removeBet(seat);
           });
         }
       });
+
+      // Chat trigger buttons on seat plates & quick chat bar
+      this.seatPlates.forEach((plate) => {
+        const chatBtn = plate.querySelector(".seat-plate__chat-btn");
+        if (chatBtn) {
+          chatBtn.addEventListener("click", (event) => {
+            event.stopPropagation();
+            this._unlockAudio();
+            this.openChatInput();
+          });
+        }
+      });
+
+      if (this.el.quickChatForm && this.el.quickChatInput) {
+        this.el.quickChatForm.addEventListener("submit", (event) => {
+          event.preventDefault();
+          this._submitChatInput();
+        });
+        this.el.quickChatInput.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            this.closeChatInput();
+          }
+        });
+        if (this.el.quickChatCloseBtn) {
+          this.el.quickChatCloseBtn.addEventListener("click", () => this.closeChatInput());
+        }
+      }
 
       // Wooden shoe on the right: Deal in betting, Hit during playerTurn.
       this.el.shoeHotspot.addEventListener("click", () => {
@@ -124,8 +161,12 @@
       this.el.newRoundBtn.addEventListener("click", () => this._act(() => this.engine.newRound()));
       this.el.rebetRoundBtn.addEventListener("click", () =>
         this._act(() => {
-          const res = this.engine.newRound();
-          if (res.ok) this.engine.rebet();
+          if (Number.isInteger(this.engine.mySeat)) {
+            this.engine.newRound({ autoRebet: true });
+          } else {
+            const res = this.engine.newRound();
+            if (res.ok) this.engine.rebet();
+          }
         })
       );
 
@@ -158,9 +199,15 @@
       fn();
     }
 
+    _isMySeat(seat) {
+      if (!Number.isInteger(this.engine.mySeat)) return true;
+      return this.engine.mySeat === seat;
+    }
+
     _placeSelectedOn(seat) {
+      if (!this._isMySeat(seat)) return;
       const bank = this.engine.bankroll;
-      const current = this.engine.state.seatBets[seat];
+      const current = this.engine.state.seatBets[seat] || 0;
       const maxAdd = this.engine.rules.maxBet - current;
       if (maxAdd <= 0) {
         this.showDealerLine(`Maximální sázka na kruh je ${U.formatMoney(this.engine.rules.maxBet)}.`, "grumpy");
@@ -212,6 +259,8 @@
       const actions = e.getAvailableActions();
       const phase = e.phase;
       const betTotal = e.moneyOnTable();
+      const mySeat = Number.isInteger(e.mySeat) ? e.mySeat : -1;
+      const isMultiplayer = mySeat >= 0 || Number.isInteger(e.mySeat);
       this.el.stage.dataset.phase = phase;
 
       // Bankroll & active bet plaque
@@ -233,20 +282,26 @@
       this.el.chipRack.classList.toggle("is-inactive", !actions.bet || busy);
 
       // 3 Gold Betting Circles
-      const hasAnyBet = e.totalSeatBets() > 0;
+      const hasAnyBet = isMultiplayer
+        ? mySeat >= 0 && (e.state.seatBets[mySeat] || 0) > 0
+        : e.totalSeatBets() > 0;
       this.seatHotspots.forEach((spot, idx) => {
         const bet = e.state.seatBets[idx] || 0;
-        const active = !busy && actions.bet;
+        const mine = !isMultiplayer || idx === mySeat;
+        const active = !busy && actions.bet && mine;
         spot.disabled = !active;
         spot.classList.toggle("is-betting", active);
+        spot.classList.toggle("is-other-seat", !mine);
         spot.classList.toggle("has-bet", bet > 0);
-        spot.classList.toggle("is-invite", active && !hasAnyBet && idx === 1);
+        spot.classList.toggle("is-invite", active && !hasAnyBet && (isMultiplayer ? idx === mySeat : idx === 1));
 
         const pill = this.seatBetsEl[idx];
         if (pill) {
           pill.hidden = !(phase === MBJ.PHASE.BETTING && bet > 0);
           const valSpan = pill.querySelector(".seat-bet-pill__amount");
           if (valSpan) valSpan.textContent = U.formatMoney(bet);
+          const clearBtn = pill.querySelector(".seat-bet-pill__clear");
+          if (clearBtn) clearBtn.hidden = !mine || Boolean(actions.waitingForOthers);
         }
       });
 
@@ -259,7 +314,7 @@
         actions.deal ? "Zásobník karet – klikni pro rozdání" : actions.hit ? "Zásobník karet – klikni pro další kartu" : "Zásobník karet"
       );
       if (this.el.shoeShuffleTag) {
-        this.el.shoeShuffleTag.hidden = !e.shoe.needsShuffle();
+        this.el.shoeShuffleTag.hidden = !e.shoe.needsShuffle;
       }
 
       // Action rail groups (only current phase group is visible)
@@ -269,6 +324,7 @@
       this.el.groupRoundOver.hidden = phase !== MBJ.PHASE.ROUND_OVER;
 
       // Betting buttons
+      this.el.dealBtn.textContent = actions.waitingForOthers ? "Čekám…" : "Rozdat";
       this.el.dealBtn.disabled = busy || !actions.deal;
       this.el.clearBtn.hidden = !actions.clearBets;
       this.el.clearBtn.disabled = busy || !actions.clearBets;
@@ -281,8 +337,10 @@
       if (phase === MBJ.PHASE.INSURANCE && e.activeHand) {
         const cost = Math.floor(e.activeHand.bet / 2);
         this.el.insCost.textContent = U.formatMoney(cost);
-        this.el.insYesBtn.disabled = busy || !actions.insuranceAffordable;
-        this.el.insNoBtn.disabled = busy;
+        this.el.insYesBtn.hidden = !actions.insurance;
+        this.el.insNoBtn.hidden = !actions.insurance;
+        this.el.insYesBtn.disabled = busy || !actions.insurance || !actions.insuranceAffordable;
+        this.el.insNoBtn.disabled = busy || !actions.insurance;
       }
 
       // Player turn buttons
@@ -296,25 +354,145 @@
       this.el.surrenderBtn.disabled = busy || !actions.surrender;
 
       // Round over buttons
-      const lastSum = e.state.lastBets.reduce((sum, b) => sum + b, 0);
-      const canQuickRebet = phase === MBJ.PHASE.ROUND_OVER && lastSum > 0 && lastSum <= e.bankroll;
+      const lastSum = isMultiplayer ? (mySeat >= 0 ? e.state.lastBets[mySeat] || 0 : 0) : e.state.lastBets.reduce((sum, b) => sum + b, 0);
+      const canQuickRebet = phase === MBJ.PHASE.ROUND_OVER && !actions.waitingNextRound && lastSum > 0 && lastSum <= e.bankroll;
+      this.el.newRoundBtn.textContent = actions.waitingNextRound ? "Čekám…" : "Nové kolo";
       this.el.newRoundBtn.disabled = busy || !actions.newRound;
       this.el.rebetRoundBtn.hidden = !canQuickRebet;
       this.el.rebetRoundBtn.disabled = busy || !canQuickRebet;
+    }
+
+    renderSeats(seats, mySeat, phase, activeHand, round) {
+      if (!this.seatPlates || !this.seatPlates.length) return;
+      this.seatPlates.forEach((plate, idx) => {
+        const data = seats ? seats[idx] : null;
+        const avatarEl = plate.querySelector(".seat-plate__avatar");
+        const nameEl = plate.querySelector(".seat-plate__name");
+        const bankEl = plate.querySelector(".seat-plate__bank");
+        const badgeEl = plate.querySelector(".seat-plate__badge");
+        const chatBtn = plate.querySelector(".seat-plate__chat-btn");
+
+        if (!data) {
+          plate.classList.add("is-empty");
+          plate.classList.remove("is-me", "is-turn", "is-ready");
+          if (avatarEl) avatarEl.hidden = true;
+          if (nameEl) nameEl.textContent = `P${idx + 1} · Volné`;
+          if (bankEl) bankEl.textContent = "";
+          if (badgeEl) badgeEl.hidden = true;
+          if (chatBtn) chatBtn.hidden = true;
+          return;
+        }
+
+        plate.classList.remove("is-empty");
+        const isMe = idx === mySeat;
+        const isTurn = (phase === MBJ.PHASE.PLAYER || phase === MBJ.PHASE.INSURANCE) && activeHand && activeHand.seat === idx;
+        const isReady = phase === MBJ.PHASE.BETTING && Boolean(data.ready && Number(data.readyRound) === Number(round));
+        plate.classList.toggle("is-me", isMe);
+        plate.classList.toggle("is-turn", Boolean(isTurn));
+        plate.classList.toggle("is-ready", isReady);
+
+        if (avatarEl) {
+          const av = MBJ.AVATARS.find((a) => a.id === Number(data.avatarId) && a.unlocked) || MBJ.AVATARS[0];
+          avatarEl.src = av.src;
+          avatarEl.hidden = false;
+        }
+        if (nameEl) {
+          const full = `${data.firstName || ""} ${data.lastName || ""}`.trim();
+          nameEl.textContent = isMe ? `${full} (Ty)` : full;
+        }
+        if (bankEl) {
+          bankEl.textContent = U.formatMoney(data.bankroll || 0);
+        }
+        if (badgeEl) {
+          badgeEl.hidden = !isReady;
+          badgeEl.textContent = "✓";
+        }
+        if (chatBtn) {
+          chatBtn.hidden = !isMe;
+        }
+      });
+    }
+
+    openChatInput() {
+      if (!this.el.quickChatBar || !this.el.quickChatInput) return;
+      if (this.el.saloonScreen && !this.el.saloonScreen.hidden) return;
+      this.el.quickChatBar.hidden = false;
+      this.el.quickChatInput.value = "";
+      requestAnimationFrame(() => this.el.quickChatInput.focus());
+    }
+
+    closeChatInput() {
+      if (!this.el.quickChatBar || !this.el.quickChatInput) return;
+      this.el.quickChatInput.blur();
+      this.el.quickChatBar.hidden = true;
+    }
+
+    _submitChatInput() {
+      if (!this.el.quickChatInput) return;
+      const text = this.el.quickChatInput.value.trim();
+      this.closeChatInput();
+      if (text && typeof this.engine.sendChatMessage === "function") {
+        this.engine.sendChatMessage(text);
+      }
+    }
+
+    showPlayerChatBubble(seat, text) {
+      const bubble = this.chatBubbles && this.chatBubbles[seat];
+      if (!bubble || !text) return;
+      const textEl = bubble.querySelector(".player-chat-bubble__text");
+      if (textEl) textEl.textContent = text;
+      bubble.hidden = false;
+      bubble.classList.remove("is-visible");
+      requestAnimationFrame(() => bubble.classList.add("is-visible"));
+      clearTimeout(this._chatTimers[seat]);
+      this._chatTimers[seat] = setTimeout(() => {
+        bubble.classList.remove("is-visible");
+        setTimeout(() => {
+          if (!bubble.classList.contains("is-visible")) bubble.hidden = true;
+        }, 220);
+      }, 4500);
     }
 
     /* ============================ keyboard ============================= */
 
     _onKeyDown(event) {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target;
+      const inField = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
       const key = event.key.toLowerCase();
 
-      if (key === "escape" && !this.el.rulesModal.hidden) {
-        event.preventDefault();
-        this._toggleRules(false);
-        return;
+      if (key === "escape") {
+        if (this.el.quickChatBar && !this.el.quickChatBar.hidden) {
+          event.preventDefault();
+          this.closeChatInput();
+          return;
+        }
+        if (this.el.profileModal && !this.el.profileModal.hidden) {
+          event.preventDefault();
+          this.el.profileModal.hidden = true;
+          return;
+        }
+        if (!this.el.rulesModal.hidden) {
+          event.preventDefault();
+          this._toggleRules(false);
+          return;
+        }
       }
+
+      if (this.el.saloonScreen && !this.el.saloonScreen.hidden) return;
+      if (this.el.profileModal && !this.el.profileModal.hidden) return;
       if (!this.el.rulesModal.hidden) return;
+      if (inField) return;
+
+      // Enter opens quick chat bubble input anywhere at the table
+      if (key === "enter") {
+        if (Number.isInteger(this.engine.mySeat) && this.engine.mySeat >= 0) {
+          event.preventDefault();
+          this.openChatInput();
+          return;
+        }
+      }
+
       if (this.scene.isBusy) return;
 
       this._unlockAudio();
@@ -332,7 +510,7 @@
         return;
       }
 
-      if (key === "enter" || key === " ") {
+      if (key === " " || (!Number.isInteger(this.engine.mySeat) && key === "enter")) {
         if (a.deal) {
           event.preventDefault();
           this.engine.deal();
@@ -356,8 +534,8 @@
       }
 
       if (this.engine.phase === MBJ.PHASE.INSURANCE) {
-        if (key === "y" && a.insuranceAffordable) this.engine.insurance(true);
-        else if (key === "n") this.engine.insurance(false);
+        if (key === "y" && a.insurance && a.insuranceAffordable) this.engine.insurance(true);
+        else if (key === "n" && a.insurance) this.engine.insurance(false);
       }
     }
   }

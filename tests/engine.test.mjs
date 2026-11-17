@@ -426,5 +426,49 @@ test("20 000 random rounds keep every invariant", () => {
   eq(e.shoe.cards.length + e.shoe.discards.length, MBJ.RULES.decks * 52, "card conservation");
 });
 
+/* ----------------------- multiplayer seatBankrolls ---------------------- */
+
+test("multi-seat independent bankrolls, turn scoping and state migration", () => {
+  const bus = new MBJ.EventBus();
+  const e = new MBJ.BlackjackEngine({
+    bus,
+    random: MBJ.utils.mulberry32(42),
+    seatBankrolls: [100000, 50000, 200000],
+  });
+
+  eq(e.placeBet(0, 2500).ok, true);
+  eq(e.placeBet(1, 5000).ok, true);
+  eq(e.bankrollForSeat(0), 97500);
+  eq(e.bankrollForSeat(1), 45000);
+  eq(e.bankrollForSeat(2), 200000);
+
+  // Seat 1 cannot bet more than their own bankroll even though seat 0 & 2 have more
+  eq(e.placeBet(1, 50000).reason, "insufficient-funds");
+
+  // P0: A,K (BJ), P1: 8,7 (15), D: 9,7 (16 -> hits)
+  stack(e, ["AS", "8H", "9D", "KS", "7C", "7S", "10H"]);
+  e.deal();
+  eq(e.phase, "playerTurn");
+  // Turn belongs to seat 1 (seat 0 got natural BJ and resolved)
+  eq(e.activeHand.seat, 1);
+  eq(e.getAvailableActions(0).hit, false);
+  eq(e.getAvailableActions(1).hit, true);
+
+  // Simulate host migration mid-round via exportEngineState / importEngineState
+  const exported = e.exportEngineState();
+  const e2 = new MBJ.BlackjackEngine({ bus: new MBJ.EventBus() });
+  e2.importEngineState(exported);
+  eq(e2.activeHand.seat, 1);
+  eq(e2.stand().ok, true);
+  eq(e2.phase, "roundOver");
+
+  // Dealer 9+7+10 = 26 bust -> P0 wins BJ (3:2 = +3750), P1 wins 1:1 (+5000)
+  eq(e2.bankrollForSeat(0), 103750);
+  eq(e2.bankrollForSeat(1), 55000);
+  eq(e2.bankrollForSeat(2), 200000);
+  eq(e2.state.lastResult.seatResults[0].results[0].naturalBlackjack, true);
+  eq(e2.state.lastResult.seatResults[1].net, 5000);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
